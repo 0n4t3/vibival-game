@@ -1,3 +1,5 @@
+[Web Client](https://0n4t3.github.io/vibival-web-client/)
+
 # vibival-game
 *Warning: this game is truly vibe coded. Not "some functions are unreviewed" vibe coded, or even "AI wrote everything line by line but I micromanaged it" vibe coded. The mechanics were planned out by me, but but there was a prompt in between me and every line of source code (outside of the game engine and dependencies, which - to be fair - is probably the reason it runs as well as it does).*
 
