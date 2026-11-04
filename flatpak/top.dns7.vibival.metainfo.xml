@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>top.dns7.vibival</id>
+  <name>Vibival</name>
+  <summary>Survive a Carboniferous coal swamp with stone-age tools</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <description>
+    <p>
+      A lab experiment goes wrong and throws a physicist 300 million years into
+      the past. Scavenge seeds, fiddleheads and grubs, find water that won't make
+      you sick, knap flint into tools and keep a fire going, while giant
+      millipedes, scorpions and amphibians share the swamp with you.
+    </p>
+    <p>
+      Everything is generated in code: low-poly meshes, sounds and terrain.
+      Optional resource packs can replace meshes and materials with more
+      detailed ones.
+    </p>
+  </description>
+  <launchable type="desktop-id">top.dns7.vibival.desktop</launchable>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-fantasy">mild</content_attribute>
+  </content_rating>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>gamepad</control>
+  </supports>
+  <categories>
+    <category>Game</category>
+    <category>AdventureGame</category>
+  </categories>
+  <releases>
+    <release version="0.1.0" date="2026-10-31">
+      <description>
+        <p>First prototype: lab tutorial, swamp survival, crafting, knapping, fire and creatures.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -1,0 +1,55 @@
+; Engine configuration file.
+; Hand-maintained: the project has no imported assets, so it can be packed as a
+; plain zip and run by the release-only godot-runner from the Flathub BaseApp.
+; Music files in res://music are loaded at runtime from their raw bytes.
+
+config_version=5
+
+[application]
+
+config/name="Vibival"
+config/description="Survive a Carboniferous coal swamp with stone-age tools."
+run/main_scene="res://scenes/title.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+config/use_custom_user_dir=true
+config/custom_user_dir_name="vibival"
+boot_splash/bg_color=Color(0.03, 0.05, 0.03, 1)
+boot_splash/show_image=false
+run/low_processor_mode=false
+
+[autoload]
+
+Settings="*res://src/autoload/settings.gd"
+Items="*res://src/autoload/items.gd"
+Assets="*res://src/autoload/assets.gd"
+Sfx="*res://src/autoload/sfx.gd"
+Music="*res://src/autoload/music.gd"
+Game="*res://src/autoload/game.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/vsync/vsync_mode=1
+display_server/driver.linuxbsd="wayland"
+
+[gui]
+
+theme/default_font_antialiasing=1
+
+[physics]
+
+common/physics_ticks_per_second=60
+common/max_physics_steps_per_frame=4
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.03, 0.05, 0.03, 1)
+lights_and_shadows/directional_shadow/size=2048
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=1
+anti_aliasing/quality/msaa_3d=0

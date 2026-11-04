@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Vibival
+Comment=Survive a Carboniferous coal swamp with stone-age tools
+Exec=vibival
+Icon=top.dns7.vibival
+Terminal=false
+Categories=Game;AdventureGame;
+Keywords=survival;crafting;swamp;prehistoric;
+PrefersNonDefaultGPU=false

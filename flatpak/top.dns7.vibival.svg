@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c9d6a8"/>
+      <stop offset="1" stop-color="#6f8a4a"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="22" fill="url(#sky)"/>
+  <path d="M8 92 Q40 84 64 90 T120 88 V98 Q120 120 98 120 H30 Q8 120 8 98 Z" fill="#3d4f26"/>
+  <path d="M8 100 Q44 94 70 99 T120 97" fill="none" stroke="#9fb07a" stroke-width="2" opacity="0.6"/>
+  <!-- Lepidodendron: scaly trunk forking into tufted crowns -->
+  <path d="M58 96 L60 46 L68 46 L70 96 Z" fill="#4a5a30"/>
+  <path d="M60 58 L68 54 M60 66 L68 62 M60 74 L68 70 M60 82 L69 78 M60 90 L69 86" stroke="#36441f" stroke-width="2"/>
+  <path d="M62 48 Q52 36 42 30 M66 48 Q76 36 86 30" fill="none" stroke="#4a5a30" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#2f5a1c">
+    <ellipse cx="40" cy="28" rx="12" ry="7" transform="rotate(-20 40 28)"/>
+    <ellipse cx="88" cy="28" rx="12" ry="7" transform="rotate(20 88 28)"/>
+  </g>
+  <g fill="#477a2a">
+    <ellipse cx="38" cy="25" rx="7" ry="4" transform="rotate(-20 38 25)"/>
+    <ellipse cx="90" cy="25" rx="7" ry="4" transform="rotate(20 90 25)"/>
+  </g>
+  <!-- Fern fronds at the base -->
+  <path d="M30 96 Q24 80 18 76 M34 96 Q36 80 44 74 M92 96 Q94 82 104 78 M96 96 Q102 86 110 86" fill="none" stroke="#2f5a1c" stroke-width="4" stroke-linecap="round"/>
+</svg>
