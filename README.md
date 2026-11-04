@@ -4,7 +4,7 @@
 ## About
 Vibival is a survival game, set in a vaguely carboniferous coal swamp. It’s a slow and grounded game, if that makes any sense. There’ll be no epic boss battles or megastructures to construct, you’ll probably be too busy cleaning a bite to keep it from getting infected because that stupid bug just bit you again, or digging up fern tree roots because you’re still low on greens.
 
-There’s a [guide here](https://github.com/0n4t3/vibival-game/blob/main/docs/README.md) if you want to read it.
+If you'd like to try it, [playing the web version](https://0n4t3.github.io/vibival-web-client/) is probably your best bet. Linux and Android builds coming soon-ish, Windows likely to follow. There’s a [guide here](https://github.com/0n4t3/vibival-game/blob/main/docs/README.md) if you want to read it.
 
 #### Progression
 Progression isn’t entirely linear, and from the first time you play it to when you delete the world because *that stupid bug just bit you three times in a row*, you’ll still be spending time gathering food and trying to fetch water without being eaten by a swamp predator. Crafting is done in a 3D environment, and most items are stored in physical piles in the world instead of in containers.
@@ -30,5 +30,6 @@ There’s some *further* planned content I’ll keep working on as long as token
 * A much better (and funnier) tutorial
 * Maps
 * Boats
+* Multiplayer
 
 Additionally, there’s likely going to be a third stage to progression: metalworking. It’ll likely include copper (sailing from the shores to find islands with copper deposits) and meteoric iron (a meteor landing randomly during meteor showers). It’ll also likely include free building, or at least much more customizable and larger homes.
