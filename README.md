@@ -1,12 +1,14 @@
-[Web Client](https://0n4t3.github.io/vibival-web-client/)
+#     [Play in a browser](https://0n4t3.github.io/vibival-web-client/)
 
-# vibival-game
+---
+
+# Vibival
 *Warning: this game is truly vibe coded. Not "some functions are unreviewed" vibe coded, or even "AI wrote everything line by line but I micromanaged it" vibe coded. The mechanics were planned out by me, but but there was a prompt in between me and every line of source code (outside of the game engine and dependencies, which - to be fair - is probably the reason it runs as well as it does).*
 
 ## About
 Vibival is a survival game, set in a vaguely carboniferous coal swamp. It’s a slow and grounded game, if that makes any sense. There’ll be no epic boss battles or megastructures to construct, you’ll probably be too busy cleaning a bite to keep it from getting infected because that stupid bug just bit you again, or digging up fern tree roots because you’re still low on greens.
 
-If you'd like to try it, [playing the web version](https://0n4t3.github.io/vibival-web-client/) is probably your best bet. Linux and Android builds coming soon-ish, Windows likely to follow. There’s a [guide here](https://github.com/0n4t3/vibival-game/blob/main/docs/README.md) if you want to read it.
+If you'd like to try it, [playing the web version](https://0n4t3.github.io/vibival-web-client/) is probably your best bet. Linux and Android are working now, expect their builds in the releases at some point (Windows likely to follow). There’s a [guide here](https://github.com/0n4t3/vibival-game/blob/main/docs/README.md) if you want to read it.
 
 #### Progression
 Progression isn’t entirely linear, and from the first time you play it to when you delete the world because *that stupid bug just bit you three times in a row*, you’ll still be spending time gathering food and trying to fetch water without being eaten by a swamp predator. Crafting is done in a 3D environment, and most items are stored in physical piles in the world instead of in containers.
