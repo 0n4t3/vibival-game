@@ -22,9 +22,9 @@ As time goes on you’ll be able to do a bit more. Make a mattok to start replan
 * A pre-fab softwood structure
 * Composting, which greatly speeds up farming
 
-Additionally, there’s likely going to be a third stage to progression: metalworking. It’ll likely include copper (sailing from the shores to find islands with copper deposits) and meteoric iron (a meteor landing randomly during meteor showers). It’ll also likely include free building, or at least much more customizable and larger homes.
+---
 
-There’s some *further* planned content I’ll keep working on as long as tokens remain cheap, including:
+There’s some further planned content I’ll keep working on as long as tokens remain cheap, including:
 * Food & Stamina Overhaul
 * Combat overhaul
 * A much better (and funnier) tutorial
