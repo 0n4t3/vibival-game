@@ -497,7 +497,7 @@ whatever is in it while you do.
   percentage of the bar each fills) and how many servings are left.
 - **Keeping**: soup keeps for 36 game hours (a day and a half) after it last
   boiled. Leave it hanging over a fire that stays lit and it never goes off.
-  Gone off, it can't be saved: boiling doesn't help, and nothing more can go
+  Gone bad, it can't be saved: boiling doesn't help, and nothing more can go
   in.
 - **Emptying**: filling a pot that has something in it at the water tips it
   all out and fills it with swamp water. Tipping out soup with meat in it
