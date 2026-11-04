@@ -1,5 +1,5 @@
 # vibival-game
-*Warning: this game is truly vibe coded. Not "some functions are unreviewed" vibe coded, or even "AI wrote everything line by line but I micromanaged it" vibe coded. The game has human input, but it's all in the prompts, no human ever touched the code (outside of the game engine and dependencies, which - to be fair - is probably the reason it runs as well as it does).*
+*Warning: this game is truly vibe coded. Not "some functions are unreviewed" vibe coded, or even "AI wrote everything line by line but I micromanaged it" vibe coded. The mechanics were planned out by me, but but there was a prompt in between me and every line of source code (outside of the game engine and dependencies, which - to be fair - is probably the reason it runs as well as it does).*
 
 ## About
 Vibival is a survival game, set in a vaguely carboniferous coal swamp. It’s a slow and grounded game, if that makes any sense. There’ll be no epic boss battles or megastructures to construct, you’ll probably be too busy cleaning a bite to keep it from getting infected because that stupid bug just bit you again, or digging up fern tree roots because you’re still low on greens.
