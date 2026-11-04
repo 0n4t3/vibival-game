@@ -3,6 +3,8 @@ extends PanelContainer
 
 signal closed
 
+const SOURCE_URL := "https://github.com/0n4t3/vibival-game"
+
 
 func _ready() -> void:
 	var sb := StyleBoxFlat.new()
@@ -72,6 +74,12 @@ func _ready() -> void:
 	packs.add_theme_font_size_override("font_size", 12)
 	packs.modulate = Color(1, 1, 1, 0.6)
 	vb.add_child(packs)
+
+	var source := LinkButton.new()
+	source.text = "Source code"
+	source.uri = SOURCE_URL
+	source.add_theme_font_size_override("font_size", 12)
+	vb.add_child(source)
 
 	var done := Button.new()
 	done.text = "Done"

@@ -57,7 +57,10 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS  # keeps playing while paused
 	_rng.randomize()
 	if AudioServer.get_bus_index(BUS) < 0:
-		AudioServer.add_bus()
+		# Not add_bus(): on the web (Godot 4.7) appending a bus puts it before
+		# Master in the browser's audio graph, and the send below then loops
+		# Master and Music into each other, which silences all audio.
+		AudioServer.bus_count += 1
 		AudioServer.set_bus_name(AudioServer.bus_count - 1, BUS)
 		AudioServer.set_bus_send(AudioServer.bus_count - 1, "Master")
 	_player = AudioStreamPlayer.new()

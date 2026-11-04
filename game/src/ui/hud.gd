@@ -2,7 +2,6 @@ extends CanvasLayer
 ## In-game overlay: vitals, hotbar, crosshair, prompts, messages, tutorial
 ## hints, objective list, damage flash, screen fades and the death screen.
 
-signal restart_requested
 signal title_requested
 signal load_requested
 
@@ -316,17 +315,13 @@ func show_death(text: String, can_load := false) -> void:
 		wake.pressed.connect(func(): load_requested.emit())
 		vb.add_child(wake)
 		wake.grab_focus.call_deferred()
-	var again := Button.new()
-	again.text = "Start this world over"
-	again.pressed.connect(func(): restart_requested.emit())
-	vb.add_child(again)
 	var quit := Button.new()
 	quit.text = "Title screen"
 	quit.pressed.connect(func(): title_requested.emit())
 	vb.add_child(quit)
 	add_child(_death)
 	if not can_load:
-		again.grab_focus.call_deferred()
+		quit.grab_focus.call_deferred()
 
 
 func _hotbar_rect(i: int, size: Vector2) -> Rect2:

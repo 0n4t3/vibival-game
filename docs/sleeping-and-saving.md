@@ -55,8 +55,6 @@ Every world has a name, its own map, and its own camp and quit saves.
   it. **Load** continues it. A world with nothing saved yet shows **Start**,
   which begins it again from the beginning. **Delete** asks you to press it a
   second time to confirm.
-- **Start this world over** on the death screen gives the same world a new
-  map and erases its saves.
 
 A save from before named worlds existed shows up as a world called
 **My world**.

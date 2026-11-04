@@ -35,7 +35,6 @@ func setup_common(spawn: Vector3, vitals: bool) -> void:
 	add_child(hud)
 	hud.bind_player(player)
 	hud.show_vitals = vitals
-	hud.restart_requested.connect(func(): Game.start_new_game(false))
 	hud.title_requested.connect(func(): Game.goto("title"))
 	hud.load_requested.connect(func(): Game.load_game())
 

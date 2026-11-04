@@ -20,6 +20,8 @@ const GRAVITY := 11.0
 const FLY_SPEED := 8.0
 const FLY_TAP := 0.35       # seconds between the two jump presses that toggle flying
 const INTERACT_RANGE := 3.0
+const DROP_REACH := 1.0         # how far in front a dropped item lands
+const DROP_CLEARANCE := 0.3     # and how far short of anything solid in the way
 const FIST_DAMAGE := 2.0
 const GRAB_DPS := 13.0          # default health lost per second in an amphibian's jaws
 const GRAB_BITE := 25.0         # default damage of the initial bite (species override both)
@@ -788,7 +790,7 @@ func _drop_held() -> void:
 	if s == null or world == null or not world.has_method("spawn_pickup"):
 		return
 	var item: Dictionary = inv.take(inv.selected, 1)
-	var pos := global_position - transform.basis.z * 1.0 + Vector3(0, 0.8, 0)
+	var pos := drop_point()
 	if Items.def(item.id).get("splat", false) and world.has_method("splat_guts"):
 		world.splat_guts(pos)
 		return
@@ -796,6 +798,19 @@ func _drop_held() -> void:
 		world.pile_item(item.id, 1, pos, item.age, item.get("data", {}))  # raw materials go on a pile there
 		return
 	world.spawn_pickup(item.id, 1, pos, item.age, true, item.get("data", {}))
+
+
+func drop_point() -> Vector3:
+	## Where a dropped item lands: a metre in front at chest height, or short
+	## of a trunk, wall or anything else solid in the way, never inside it.
+	var from := global_position + Vector3(0, 0.8, 0)
+	var to := from - transform.basis.z * DROP_REACH
+	var q := PhysicsRayQueryParameters3D.create(from, to, 1 | 4, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return to
+	var back: float = maxf(from.distance_to(hit.position) - DROP_CLEARANCE, 0.0)
+	return from + (to - from).normalized() * back
 
 
 # --- Carrying and dragging ----------------------------------------------------------

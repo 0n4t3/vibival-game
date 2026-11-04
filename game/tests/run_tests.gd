@@ -2339,6 +2339,22 @@ func test_piles() -> void:
 	var fl: Array = stacks.call().filter(func(s): return s.item_id == "flint")
 	check(fl.size() == 1 and fl[0].count == 2, "dropped flint goes on a pile")
 
+	# Facing a trunk or wall close by, a dropped item lands short of it.
+	var wall := StaticBody3D.new()
+	wall.collision_layer = 1
+	var wall_shape := CollisionShape3D.new()
+	wall_shape.shape = BoxShape3D.new()
+	wall_shape.shape.size = Vector3(2.0, 3.0, 0.2)
+	wall.add_child(wall_shape)
+	w.add_child(wall)
+	wall.global_position = p.global_position + Vector3(0, 1.0, -0.6)
+	await _frames(2)
+	var dp: Vector3 = p.drop_point()
+	check(dp.z > wall.global_position.z + 0.1 + 0.2, "a dropped item lands short of a wall in front (%.2f m from it)" % (dp.z - wall.global_position.z - 0.1))
+	wall.queue_free()
+	await _frames(1)
+	check(p.drop_point().distance_to(p.global_position + Vector3(0, 0.8, -1.0)) < 0.01, "with nothing in the way it lands a metre in front")
+
 	# Logs put down beside each other start a log pile.
 	var a: Node = w.add_log("log", dry + Vector3(4, 0, 0), 0.0)
 	var b: Node = w.add_log("log", dry + Vector3(4.6, 0, 0), 0.0)
@@ -3316,8 +3332,10 @@ func test_ferment() -> void:
 	p.vitals.wounds.clear()
 	p.vitals.alcohol = 0.0
 	Game.inventory.slots[Game.inventory.selected] = {"id": "canteen_alcohol", "n": 1, "age": 0.0, "data": Items.measures_data("canteen_alcohol", 1)}
+	p.vitals.starch = 50.0
 	p.consume_slot(Game.inventory.selected)
 	check(Game.inventory.held_id() == "canteen", "the last measure leaves the empty canteen")
+	check(is_equal_approx(p.vitals.starch, 53.0), "a measure gives 3 starch (%.1f)" % (p.vitals.starch - 50.0))
 	p.vitals.alcohol = 0.0
 	var spirit := Items.def("spirit:roast_seed")
 	p.vitals.consume(spirit, RandomNumberGenerator.new())
@@ -6117,6 +6135,8 @@ func test_farming_trees() -> void:
 	# Felled, it leaves a stump that grows back; dug out, it is gone.
 	c.fell(tf)
 	check(tf.stump != null and not tf.stump.planted() and Game.felled[uid3].regrow > Game.time, "felled, its stump grows back")
+	var regrow_days: float = (float(Game.felled[uid3].regrow) - float(Game.felled[uid3].at)) / Game.DAY_LENGTH
+	check(regrow_days >= 16.0 and regrow_days <= 20.0, "in 16 to 20 days (%.1f)" % regrow_days)
 	inv.clear()
 	for k in Stump.DIG_HITS:
 		tf.stump.dig()
@@ -6144,8 +6164,8 @@ func test_farming_trees() -> void:
 	Game.time += 10.0 * Game.DAY_LENGTH
 	sig_c.add_planting(uid4)
 	var sig2 := _planted_tree(w, uid4)
-	check(not sig2.is_empty() and sig2.stump != null and sig2.stump.planted() and absf(sig2.stump.growth() - 1.0 / 3.0) < 0.02,
-			"a growing tree comes back a third grown after 10 days (%.2f)" % (sig2.stump.growth() if sig2.get("stump") else -1.0))
+	check(not sig2.is_empty() and sig2.stump != null and sig2.stump.planted() and absf(sig2.stump.growth() - 10.0 / Plot.GROW_DAYS) < 0.02,
+			"a growing tree comes back part grown after 10 days (%.2f)" % (sig2.stump.growth() if sig2.get("stump") else -1.0))
 
 	# Every stump dug out gives its root.
 	var gt := _tree_near(w, true)
