@@ -344,7 +344,7 @@ can't sleep with a line out. A fish left on land dies after a minute and a half
 
 Traps catch while you sleep. Bait them like a rod: kneel at the trap (C),
 lay out any bait (meat bait, beetle grubs, rotten food or guts), choose
-*Bait the … with …* and click the glowing spot. Baiting a trap that is
+to bait the trap, and click the glowing spot. Baiting a trap that is
 already baited swaps the bait, giving you the old one back.
 
 **Fish Trap.** At a workbench with the Woodworking Tools on its rack: 10
