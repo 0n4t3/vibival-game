@@ -192,10 +192,8 @@ func _process(delta: float) -> void:
 	if player:
 		var dark: float = player.vitals.blindness() if player.vitals_enabled and not player.vitals.dead else 0.0
 		_blind.color.a = lerpf(_blind.color.a, dark, minf(delta * 2.0, 1.0))
-		# Touch screens have an Act button where keyboards have E.
-		_prompt.text = player.prompt.replace("[E]", "[Act]") if Settings.touch else player.prompt
-		if Settings.touch:
-			_prompt.text = _prompt.text.replace("[C]", "[Craft]").replace("[Q]", "[Drop]")
+		# Key hints name what is bound on the keyboard, pad or touch screen.
+		_prompt.text = Settings.hint(player.prompt)
 		set_tooltip(player.tooltip)
 	if show_vitals:
 		var tod := Game.time_of_day()

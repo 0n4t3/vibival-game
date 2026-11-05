@@ -381,7 +381,7 @@ func _move(src: RefCounted, si: int, dst: RefCounted, di: int) -> bool:
 		if moved.has("data"):
 			dst.slots[di].data = moved.data
 	else:
-		d.age = (d.age * d.n + moved.age * moved.n) / (d.n + moved.n)
+		d.age = maxf(d.age, moved.age)
 		d.n += moved.n
 	dst.changed.emit()
 	Sfx.play("click", -12.0)

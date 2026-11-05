@@ -59,6 +59,7 @@ var _meteors := []      # [{a, b, t, life}]
 var _radiant := 0.0     # azimuth the meteors come from
 var _bolt := PackedVector3Array()
 var _bolt_life := 0.0
+var _bolt_total := 0.0
 var _thunder := []      # [seconds until heard, volume]
 var _aurora: MeshInstance3D
 var _aurora_mat: ShaderMaterial
@@ -281,18 +282,21 @@ func lightning() -> Vector3:
 	ground.y = maxf(ground.y, 0.0)
 	_make_bolt(ground, r * 0.55, 4.0)
 	_bolt_life = 0.35
+	_bolt_total = 0.35
 	var secs := clampf(d / 343.0, 0.3, 5.0)
 	_thunder.append([secs, lerpf(4.0, -6.0, d / r)])
 	return ground
 
 
-func strike(ground: Vector3) -> void:
+func strike(ground: Vector3, life := 0.5) -> void:
 	## A bolt that hits right here, close by: a blinding flash and the thunder
 	## at once (the arrival, intro.gd, where it sets a tree alight). Works in
-	## any weather.
+	## any weather. It flickers for half a second, then fades over the rest
+	## of its life.
 	flash = 1.0
 	_make_bolt(ground, 70.0, 2.5)
-	_bolt_life = 0.5
+	_bolt_life = life
+	_bolt_total = life
 	Sfx.play("thunder", 6.0, 0.05)
 
 
@@ -366,11 +370,14 @@ func _update_visuals() -> void:
 		_streak_mesh.surface_end()
 		any = true
 	if _bolt_life > 0.0 and _bolt.size() > 1:
-		var on: bool = fmod(_bolt_life, 0.12) > 0.04
+		# Flickering for half a second; a long one then fades out.
+		var steady := _bolt_total - _bolt_life > 0.5
+		var on: bool = steady or fmod(_bolt_life, 0.12) > 0.04
 		if on:
+			var c := Color(0.85, 0.85, 1.0) * 2.0 * (clampf(_bolt_life / maxf(_bolt_total - 0.5, 0.01), 0.0, 1.0) if steady else 1.0)
 			_streak_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 			for i in _bolt.size() - 1:
-				_ribbon(_bolt[i], _bolt[i + 1], to_cam.call(_bolt[i]), 1.2, Color(0.85, 0.85, 1.0) * 2.0, Color(0.85, 0.85, 1.0) * 2.0)
+				_ribbon(_bolt[i], _bolt[i + 1], to_cam.call(_bolt[i]), 1.2, c, c)
 			_streak_mesh.surface_end()
 			any = true
 	_streaks.visible = any

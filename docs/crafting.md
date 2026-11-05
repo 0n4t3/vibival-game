@@ -188,8 +188,11 @@ something has hold of you, or with the inventory open.
 The view turns, widens and if need be steps back so the work and every spot
 you need to click stay clear of the panels.
 
-On a gamepad, the right stick moves the cursor, A clicks, X does the next step
-(hold it to twist cordage) and B stands you up.
+On a gamepad, the right stick moves a cursor drawn on the screen, A clicks
+(on a tray slot, lays one down), the left trigger right-clicks (on a tray
+slot, lays the whole stack), X does the next step (hold it to twist cordage)
+and B stands you up. These are the default buttons; they follow whatever you
+bind under Settings → Controls.
 
 **Stop** puts the parts back down, except for a stone you have already struck,
 which is lost. Getting hurt or grabbed stands you up, and saving puts

@@ -80,6 +80,7 @@ var _liquid_mat: StandardMaterial3D
 var _steam: CPUParticles3D
 var _shown := ""
 var _was_boiling := false
+var _on_hearth := false    # hung in a house's fireplace: no tripod
 var _rng := RandomNumberGenerator.new()
 
 
@@ -342,6 +343,12 @@ static func mix(a: Dictionary, b: Dictionary) -> Dictionary:
 func _process(delta: float) -> void:
 	if fire != null and not hung():
 		fire = null
+	var on_hearth: bool = hung() and hauled_by == null and fire.hearth
+	if on_hearth != _on_hearth:
+		_on_hearth = on_hearth
+		if on_hearth:
+			global_rotation.y = fire.global_rotation.y  # the stick runs across the hood
+		_rebuild()
 	var lit_s := delta if _over_lit_fire() else 0.0
 	advance(delta, lit_s)
 	_steam.emitting = boiling() and hauled_by == null
@@ -391,7 +398,7 @@ func _near_player() -> bool:
 func _rebuild() -> void:
 	if _mesh == null:
 		return
-	_mesh.mesh = Assets.mesh("item_" + item_id)
+	_mesh.mesh = Assets.hearth_pot(item_id) if _on_hearth else Assets.mesh("item_" + item_id)
 	_refresh()
 
 

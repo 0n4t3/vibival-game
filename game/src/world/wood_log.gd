@@ -75,6 +75,24 @@ func _rebuild() -> void:
 	_mesh.mesh = Assets.rotten_log(item_id) if rotten() else Assets.log_mesh(item_id, kind)
 
 
+func lie_on_ground() -> void:
+	## Tips along its length to the slope under it, so neither end sinks into
+	## the ground.
+	if world == null or not world.has_method("floor_height"):
+		return
+	var yaw := rotation.y
+	var axis := Vector3(cos(yaw), 0, -sin(yaw))  # the log's length (X)
+	var p := global_position
+	var half := length() * 0.5
+	var a: float = world.floor_height(p + axis * half)
+	var b: float = world.floor_height(p - axis * half)
+	var c: float = world.floor_height(p)
+	if not (is_finite(a) and is_finite(b) and is_finite(c)):
+		return
+	rotation = Vector3(0, yaw, clampf(atan2(a - b, length()), -0.5, 0.5))
+	global_position.y = maxf(c, (a + b) * 0.5)
+
+
 func set_id(id: String) -> void:
 	## Worked into another kind of log (stripped, or cut down short).
 	item_id = id
@@ -193,6 +211,7 @@ func set_hauled(by: Node3D) -> void:
 		var g: float = world.floor_height(global_position) if world else global_position.y
 		global_position.y = g
 		rotation = Vector3(0, rotation.y, 0)
+		lie_on_ground()
 		if world and world.has_method("settle_log"):
 			world.settle_log(self)
 
@@ -248,3 +267,4 @@ func from_dict(d: Dictionary) -> void:
 	rotation.y = float(d.get("yaw", 0.0))
 	if is_inside_tree():
 		_rebuild()
+		lie_on_ground()

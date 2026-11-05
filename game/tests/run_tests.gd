@@ -45,6 +45,9 @@ func _ready() -> void:
 	if only.is_empty() or "inventory" in only:
 		print("== inventory")
 		test_inventory()
+	if only.is_empty() or "controls" in only:
+		print("== controls")
+		await test_controls()
 	if only.is_empty() or "knapping" in only:
 		print("== knapping")
 		test_knapping()
@@ -220,6 +223,10 @@ func test_inventory() -> void:
 	check(inv.remove("plant_fiber", 22), "remove 22")
 	check(inv.count("plant_fiber") == 3, "3 left")
 	check(not inv.remove("plant_fiber", 5), "cannot over-remove")
+	inv.clear()
+	inv.add("raw_meat", 3, 500.0)
+	inv.add("raw_meat", 1, 0.0)
+	check(inv.count("raw_meat") == 4 and inv.slots[0].age == 500.0, "a fresh one added to a stack doesn't freshen the rest")
 	inv.clear()
 
 	# Weight limit: arms only, then a sack.
@@ -1056,6 +1063,24 @@ func test_swamp() -> void:
 	for c in w.chunks.values():
 		trees += c.trunks.size()
 	check(trees / float(w.chunks.size()) > 8.0, "dense forest (%.1f trees per chunk)" % (trees / float(w.chunks.size())))
+
+	# The same world at every graphics quality: trees, boulders, harvestables
+	# and pickups all come out where they were.
+	var was_quality := Settings.quality
+	var made := []
+	for q in 3:
+		Settings.quality = q
+		var c: Node = Chunk.new()
+		w.add_child(c)
+		c.build(3, -2, w.terrain, w)
+		var things := [c.trunks, c.trees.map(func(t): return t.uid)]
+		for n in c.get_children():
+			if n.get_script() != null:
+				things.append([n.get_script().resource_path, n.position.snapped(Vector3.ONE * 0.01)])
+		made.append(str(things))
+		c.free()
+	Settings.quality = was_quality
+	check(made[0] == made[1] and made[1] == made[2], "the world is the same at every quality")
 	w.queue_free()
 	await _frames(2)
 
@@ -2564,17 +2589,80 @@ func test_bench() -> void:
 	w._update_sky()
 	check(w._sun.light_energy > 0.6 and w._env.ambient_light_energy > 0.55, "a bright moon still lights the night")
 
-	# Salt crusts wash up on the bank, never in the water.
-	var salty := 0
-	var wet := 0
+	# Salt crusts wash up on the bank, never in the water: about one in seven
+	# of everything that washes up.
+	for e in w._shore:
+		e.node.queue_free()
+	w._shore.clear()
+	await _frames(1)
+	# Around a stretch of bank, wherever the player happens to be.
+	var at: Vector3 = w.shore_spot(w.player.global_position, 0.0, 150.0, 4000, true)
+	check(at.is_finite(), "found a bank to wash up on")
 	for i in 200:
-		if w._shore_kind(Vector3(0, -0.1, 0)) == "salt":
-			wet += 1
-		if w._shore_kind(Vector3(0, 0.15, 0)) == "salt":
-			salty += 1
-	check(salty > 20 and salty < 120 and wet == 0, "salt crusts turn up on the bank (%d in 200), none in the water" % salty)
+		w._wash_up(at, 1.0, 30.0, 80, Game.time + 1e6)
+	var salts: Array = w._shore.filter(func(e): return e.node.item_id == "salt")
+	var share := salts.size() / maxf(w._shore.size(), 1.0)
+	check(w._shore.size() > 100 and share > 0.07 and share < 0.3, "salt crusts turn up (%d in %d)" % [salts.size(), w._shore.size()])
+	var on_bank := func(e) -> bool:
+		var q: Vector3 = e.node.global_position
+		return q.y > w.water_level() + 0.02 and q.y >= w.drawn_height(q.x, q.z)
+	check(salts.all(on_bank), "all on the bank, out of the water, and on top of the drawn ground")
+	check(range(200).all(func(_i): return w._shore_kind(Vector3(0, 0.15, 0)) != "salt"), "a stone's or a stick's turn never gives salt")
+	for e in w._shore:
+		e.node.queue_free()
+	w._shore.clear()
 	w.queue_free()
 	await _frames(2)
+
+
+func test_controls() -> void:
+	var pad_a := InputEventJoypadButton.new()
+	pad_a.button_index = JOY_BUTTON_A
+	pad_a.pressed = true
+	pad_a.device = 3
+	check(pad_a.is_action_pressed("jump"), "a pad numbered 3 still jumps (bindings match every device)")
+	var stick := InputEventJoypadMotion.new()
+	stick.axis = JOY_AXIS_LEFT_Y
+	stick.axis_value = -1.0
+	stick.device = 1
+	check(stick.is_action_pressed("move_forward"), "and moves with the stick")
+	var esc := InputEventKey.new()
+	esc.physical_keycode = KEY_ESCAPE
+	esc.pressed = true
+	check(esc.is_action_pressed("pause"), "Esc always pauses")
+
+	var taken := Settings.set_binding("jump", 2, {"button": JOY_BUTTON_Y})
+	check(taken == "inventory" and Settings.bindings.inventory[2].is_empty(), "rebinding takes the button off the action that had it")
+	var pad_y := pad_a.duplicate()
+	pad_y.button_index = JOY_BUTTON_Y
+	check(pad_y.is_action_pressed("jump") and not pad_a.is_action_pressed("jump"), "and the new button jumps, the old one not")
+	Settings.using_pad = true
+	check(Settings.hint("Pick it up [E]   or kneel [C]") == "Pick it up [X]   or kneel [D-pad down]", "prompts name the pad's buttons")
+	Settings.using_pad = false
+	check(Settings.hint("Open [Right-click]   (Q puts it down)") == "Open [Right-click]   (Q puts it down)", "and the keyboard's")
+
+	# The Controls screen records whatever the pad sends, from rest.
+	var cp: Control = load("res://src/ui/controls_panel.gd").new()
+	add_child(cp)
+	await _frames(1)
+	cp._wait("drop", 2)
+	var trig := InputEventJoypadMotion.new()
+	trig.axis = 5
+	trig.axis_value = 0.3
+	cp._input(trig)
+	check(Settings.bindings.drop[2] == {"button": JOY_BUTTON_B}, "a small nudge doesn't bind")
+	trig.axis_value = 0.9
+	cp._input(trig)
+	check(Settings.bindings.drop[2] == {"axis": 5, "dir": 1}, "a full pull binds the axis")
+	cp._wait("sleep", 0)
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_DELETE
+	key.pressed = true
+	cp._input(key)
+	check(Settings.bindings.sleep[0].is_empty(), "Delete clears a slot")
+	cp.queue_free()
+	Settings.reset_bindings()
+	check(pad_a.is_action_pressed("jump") and Settings.bindings.drop[2] == {"button": JOY_BUTTON_B}, "reset brings the defaults back")
 
 
 func _hold(id: String) -> void:
@@ -5120,27 +5208,30 @@ func test_arrival() -> void:
 	var p: Node = w.player
 	var intros := w.get_children().filter(func(n): return n.get_script() == Intro)
 	check(intros.size() == 1 and not Game.intro_pending, "a new run plays the arrival")
+	check(not w.raining and w.weather.kind == "" and w._weather_t > w.DRY_UNTIL - Game.clock() - 1.0, "on a sunny day, dry until dusk")
 	var intro: Node = intros[0]
 	check(p.frozen and p.lie == 1.0 and p.head.rotation.x > 1.3 and p.head.position.y < 0.5, "you wake on your back, looking at the sky")
 	var creatures: int = Game.creatures.size()
 	var step := func(until: float):
 		while intro.t < until and not intro.is_queued_for_deletion():
 			intro._process(0.1)
-	step.call(Intro.FLY_AT + Intro.FLY_TIME * 0.5)
-	var fly: Node3D = intro._fly
-	check(fly != null and is_instance_valid(fly) and Game.creatures.size() == creatures, "a dragonfly flies over you; it is no creature, so it can't attack")
-	check(fly.global_position.distance_to(p.global_position) < 4.0, "right over your head (%.1f m)" % fly.global_position.distance_to(p.global_position))
-	step.call(Intro.FLY_AT + Intro.FLY_TIME + 0.2)
-	check(not is_instance_valid(fly) or fly.is_queued_for_deletion(), "then it's gone")
+	# The flash comes first: the bolt, the screen white, the tree going over.
 	var tree: Dictionary = intro.tree
 	check(not tree.is_empty(), "a tree near enough to strike")
 	var d0: float = tree.at.distance_to(p.global_position)
 	step.call(Intro.STRIKE_AT + 0.1)
-	check(intro.struck and w.weather.flash > 0.5, "lightning")
+	check(intro.struck and intro._fly == null and w.weather._bolt_life > 1.0, "lightning first, before the dragonfly, the bolt lingering")
+	check(w.hud._fade.color.a > 0.8, "a white flash over everything (%.2f)" % w.hud._fade.color.a)
 	check(Game.felled.has(tree.uid) and tree.stump and tree.stump.phase() == "burning", "the tree comes down and its stump burns")
 	var next: Dictionary = w.nearest_soft_tree(p.global_position)
 	check(next.is_empty() or next.at.distance_to(p.global_position) >= d0, "it was the nearest one")
 	check(w.get_tree().get_nodes_in_group("felled").size() == 1, "felled as if cut")
+	step.call(Intro.FLY_AT + Intro.FLY_TIME * 0.5)
+	var fly: Node3D = intro._fly
+	check(fly != null and is_instance_valid(fly) and Game.creatures.size() == creatures, "then a dragonfly flies over you; it is no creature, so it can't attack")
+	check(fly.global_position.distance_to(p.global_position) < 4.0, "right over your head (%.1f m)" % fly.global_position.distance_to(p.global_position))
+	step.call(Intro.FLY_AT + Intro.FLY_TIME + 0.2)
+	check(not is_instance_valid(fly) or fly.is_queued_for_deletion(), "then it's gone")
 	step.call(Intro.RISE_AT + Intro.RISE_TIME + 1.0)
 	check(not p.frozen and p.lie == 0.0, "then you get up")
 	var to: Vector3 = tree.at - p.global_position

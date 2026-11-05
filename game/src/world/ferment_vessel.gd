@@ -581,7 +581,7 @@ func prompt(player: Node) -> String:
 		return fire.prompt(player)
 	if not fired_pot():
 		return "Pick up the %s [E]" % Items.item_name(item_id).to_lower()
-	var more := "   Open [Right-click]   Carry [C]" if not Settings.touch else "   Open [Use]   Carry [Craft]"
+	var more := "   Open [Right-click]   Carry [C]"
 	if POURS.has(held):
 		return "Pour in a serving of %s [E]" % ("boiled water" if POURS[held] else "swamp water") + more
 	if (held == "canteen" or held == "canteen_alcohol") and mode() == "alcohol" and not items.is_empty():
@@ -594,7 +594,7 @@ func prompt(player: Node) -> String:
 		return "Put %s in [E]%s" % [Items.item_name(held), "   (it would go rancid: %s)" % w if w != "" and not rancid else ""] + more
 	if is_empty():
 		return "Pick up the %s [E]" % Items.item_name(item_id).to_lower()
-	return "Open the vessel [E]" + more.replace("   Open [Right-click]", "").replace("   Open [Use]", "")
+	return "Open the vessel [E]" + more.replace("   Open [Right-click]", "")
 
 
 func interact(player: Node) -> void:

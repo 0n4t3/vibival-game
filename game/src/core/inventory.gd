@@ -72,6 +72,7 @@ func room_for(id: String) -> int:
 func add(id: String, n := 1, age := 0.0, force := false, data := {}) -> int:
 	## Adds items, filling existing stacks first. Returns how many did not fit
 	## (because of weight or because every slot is taken). `force` ignores weight.
+	## A stack keeps the age of its oldest item.
 	## Items with `data` each take a slot of their own.
 	var rejected := 0
 	if not force:
@@ -83,7 +84,7 @@ func add(id: String, n := 1, age := 0.0, force := false, data := {}) -> int:
 		var s = slots[i]
 		if n > 0 and data.is_empty() and s != null and s.id == id and not s.has("data") and s.n < max_n:
 			var k := mini(n, max_n - s.n)
-			s.age = (s.age * s.n + age * k) / (s.n + k)
+			s.age = maxf(s.age, age)  # a stack is as far gone as its oldest: new ones never freshen it
 			s.n += k
 			n -= k
 	for i in SIZE:

@@ -1005,7 +1005,7 @@ func summary() -> String:
 		return SEPSIS_TEXT
 	var t := tier()
 	var lead: String = ["You are in good health.", "You are hurt, but holding up: you can't sprint.",
-		"You are in a bad way: slow, weak and carrying less.", "You are dying. Your sight is going dark."][t]
+		"You are in bad condition: slow, weak and carrying less.", "You are dying. Your sight is going dark."][t]
 	if t == 0 and not problems().is_empty():
 		lead = "You are holding up, but some things need looking after."
 	return lead

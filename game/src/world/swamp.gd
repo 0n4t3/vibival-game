@@ -35,8 +35,10 @@ var _sun: DirectionalLight3D
 var _water: MeshInstance3D
 var _rain: CPUParticles3D
 var _rain_sound: AudioStreamPlayer
+var _rain_mat: ShaderMaterial
 var _amb: AudioStreamPlayer
 var _weather_t := 300.0
+const DRY_UNTIL := 1140.0  # clock seconds: a new world's first day stays sunny until dusk
 var _spawn_t := 0.0
 var _decay_t := 0.0
 var _hint_t := 0.0
@@ -58,7 +60,7 @@ const SHORE_RANGE := 100.0
 const SHORE_LIFE := [1.0, 3.0]  # days each one lies there
 const SHORE_CHERT := 0.3
 const SHORE_STICK := 0.3        # driftwood sticks stranded at the edge, in the shallows or on the bank
-const SHORE_SALT := 0.35        # of those on dry bank (not in the shallows)
+const SHORE_SALT := 0.15        # of everything washing up: a salt crust, on dry bank
 var _shore := []                # [{node, until}]
 var _shore_t := 0.0
 # Twice as far from the edge as you can reach the water to drink: any closer
@@ -102,10 +104,11 @@ func _ready() -> void:
 	if not restore.is_empty():
 		_apply_restore(restore)
 		return
+	# A new world opens on a sunny day: the first rain can't come before dusk.
+	if Game.day() == 0:
+		_weather_t = maxf(DRY_UNTIL - Game.clock(), 0.0) + _rng.randf_range(0.0, 120.0)
 	for i in SHORE_ITEMS:
-		var spot := shore_spot(spawn, 8.0, SHORE_RANGE - 10.0, 80)
-		if spot.is_finite():
-			add_shore_item(_shore_kind(spot), spot, Game.time + _rng.randf_range(0.2, SHORE_LIFE[1]) * Game.DAY_LENGTH)
+		_wash_up(spawn, 8.0, SHORE_RANGE - 10.0, 80, Game.time + _rng.randf_range(0.2, SHORE_LIFE[1]) * Game.DAY_LENGTH)
 	_dev_wood()
 	if Game.dev.has("spawn"):
 		# Dev: line up creatures in front of the player for inspection.
@@ -142,18 +145,21 @@ func _ready() -> void:
 			elif Game.dev.has("butcher"):
 				_dev_butcher.call_deferred(first)
 
-	if Game.hints_seen.get("arrived", true) == false:
+	var first_time: bool = Game.hints_seen.get("arrived", true) == false
+	if first_time:
 		Game.hints_seen["arrived"] = true
+		hud.show_message("Late Carboniferous. 307 million years ago.")
+	if Game.intro_pending:
+		# A new run: a flash of lightning sets a tree alight, and you wake on
+		# your back (the intro fades in from its white).
+		Game.intro_pending = false
+		add_child(Intro.new().setup(self))
+	elif first_time:
 		hud.set_fade(Color(1, 1, 1, 1))
 		hud.fade_to(Color(1, 1, 1, 0), 3.5)
-		hud.show_message("Late Carboniferous. 307 million years ago.")
 	else:
 		hud.set_fade(Color(0, 0, 0, 1))
 		hud.fade_to(Color(0, 0, 0, 0), 1.5)
-	if Game.intro_pending:
-		# A new run: wake on your back as lightning sets a tree alight.
-		Game.intro_pending = false
-		add_child(Intro.new().setup(self))
 
 
 func _dev_butcher(c: Node3D) -> void:
@@ -741,13 +747,10 @@ func _build_environment() -> void:
 	_rain.particle_flag_align_y = true
 	var drop := QuadMesh.new()
 	drop.size = Vector2(0.025, 0.55)
-	var dm := StandardMaterial3D.new()
-	dm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	dm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	dm.albedo_color = Color(0.7, 0.78, 0.8, 0.35)
-	dm.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
-	dm.cull_mode = BaseMaterial3D.CULL_DISABLED
-	drop.material = dm
+	_rain_mat = ShaderMaterial.new()
+	_rain_mat.shader = Shader.new()
+	_rain_mat.shader.code = RAIN_SHADER
+	drop.material = _rain_mat
 	_rain.mesh = drop
 	add_child(_rain)
 
@@ -760,6 +763,61 @@ func _build_environment() -> void:
 	_amb.volume_db = -14.0
 	add_child(_amb)
 	_amb.play()
+
+
+## Raindrops: upright billboards, left out under a finished roof (up to
+## MAX_ROOFS houses near you, given as world-to-house transforms and the
+## x range each roof covers; see _update_roofs).
+const MAX_ROOFS := 8
+const RAIN_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, shadows_disabled;
+uniform int roofs = 0;
+uniform mat4 to_house[8];
+uniform vec2 cover[8];  // the roof's x range in the house's space (one side may be missing)
+uniform vec4 shape;     // eave x, eave y, ridge y, roof z half-length
+varying vec3 world;
+void vertex() {
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(vec4(normalize(cross(vec3(0.0, 1.0, 0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),
+			vec4(0.0, 1.0, 0.0, 0.0), vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0, 1.0, 0.0))), 0.0), MODEL_MATRIX[3]);
+	MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);
+	world = (INV_VIEW_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	for (int i = 0; i < roofs; i++) {
+		vec3 l = (to_house[i] * vec4(world, 1.0)).xyz;
+		if (l.x > cover[i].x && l.x < cover[i].y && abs(l.z) < shape.w
+				&& l.y < mix(shape.z, shape.y, abs(l.x) / shape.x)) {
+			discard;
+		}
+	}
+	ALBEDO = vec3(0.7, 0.78, 0.8);
+	ALPHA = 0.35;
+}
+"""
+
+
+func _update_roofs() -> void:
+	## Tells the rain where the finished roofs near you are.
+	var mats: Array[Projection] = []
+	var cover := PackedVector2Array()
+	for h in get_tree().get_nodes_in_group("houses"):
+		if mats.size() >= MAX_ROOFS or h.global_position.distance_to(player.global_position) > 40.0:
+			continue
+		var left: bool = h.built.has("roof_left")
+		var right: bool = h.built.has("roof_right")
+		if not left and not right:
+			continue
+		mats.append(Projection(h.global_transform.affine_inverse()))
+		cover.append(Vector2(-House.EAVE.x if left else 0.0, House.EAVE.x if right else 0.0))
+	var n := mats.size()
+	while mats.size() < MAX_ROOFS:
+		mats.append(Projection.IDENTITY)
+		cover.append(Vector2.ZERO)
+	_rain_mat.set_shader_parameter("roofs", n)
+	_rain_mat.set_shader_parameter("to_house", mats)
+	_rain_mat.set_shader_parameter("cover", cover)
+	_rain_mat.set_shader_parameter("shape", Vector4(House.EAVE.x, House.EAVE.y, House.RIDGE, House.ROOF_Z.y))
 
 
 func _update_sky() -> void:
@@ -803,6 +861,8 @@ func _process(delta: float) -> void:
 	_update_chunks(p, 1, 0.0)
 	_water.global_position = Vector3(snappedf(p.x, 8.0), Terrain.WATER, snappedf(p.z, 8.0))
 	_rain.global_position = p + Vector3(0, 12, 0)
+	if raining:
+		_update_roofs()
 	weather.update(delta)
 	_update_sky()
 	_update_weather(delta)
@@ -1091,31 +1151,58 @@ func _update_shore(delta: float) -> void:
 		return
 	# Refill a bare stretch quickly, then trickle in at about the rate they go.
 	_shore_t = 30.0 if near < SHORE_ITEMS / 2 else Game.DAY_LENGTH * 2.0 / SHORE_ITEMS * _rng.randf_range(0.5, 1.5)
-	var spot := shore_spot(p, 15.0, SHORE_RANGE - 10.0)
-	if spot.is_finite():
-		add_shore_item(_shore_kind(spot), spot, Game.time + _rng.randf_range(SHORE_LIFE[0], SHORE_LIFE[1]) * Game.DAY_LENGTH)
+	_wash_up(p, 15.0, SHORE_RANGE - 10.0, 16, Game.time + _rng.randf_range(SHORE_LIFE[0], SHORE_LIFE[1]) * Game.DAY_LENGTH)
 
 
-func _shore_kind(spot: Vector3) -> String:
-	## Sticks wash up anywhere along the edge; salt crusts only form on the
-	## bank, out of the water; stones lie anywhere.
+func _wash_up(p: Vector3, near: float, far: float, tries: int, until: float) -> void:
+	## One thing turns up on the shore near p: SHORE_SALT of the time a salt
+	## crust, which only forms on dry bank just above the water (most of the
+	## shore is shallows, so it looks for bank on purpose); otherwise a
+	## stick, stone or chert anywhere along the edge.
+	var salt := _rng.randf() < SHORE_SALT
+	var spot := shore_spot(p, near, far, tries * 4, true) if salt else Vector3.INF
+	if not spot.is_finite():
+		salt = false
+		spot = shore_spot(p, near, far, tries)
+	if not spot.is_finite():
+		return
+	var pk := add_shore_item("salt" if salt else _shore_kind(spot), spot, until)
+	if salt:
+		# A thin crust: keep it on top of the drawn ground, which on a coarse
+		# terrain mesh can sit a few centimetres above the true height.
+		pk.global_position.y = maxf(spot.y, drawn_height(spot.x, spot.z)) + 0.005
+
+
+func _shore_kind(_spot: Vector3) -> String:
+	## Sticks wash up anywhere along the edge; stones lie anywhere.
 	if _rng.randf() < SHORE_STICK:
 		return "stick"
-	if spot.y > water_level() + 0.02 and _rng.randf() < SHORE_SALT:
-		return "salt"
 	return "flint" if _rng.randf() < SHORE_CHERT else "stone"
 
 
-func shore_spot(p: Vector3, near: float, far: float, tries := 16) -> Vector3:
-	## A point on the bank or in the very shallows, right by open water, or
-	## Vector3.INF if none turned up this time.
+func drawn_height(x: float, z: float) -> float:
+	## About where the terrain mesh is drawn at x, z: the true heights at the
+	## corners of its grid cell (Settings.terrain_step() apart), blended.
+	var step := float(Settings.terrain_step())
+	var x0 := floorf(x / step) * step
+	var z0 := floorf(z / step) * step
+	var fx := (x - x0) / step
+	var fz := (z - z0) / step
+	return lerpf(lerpf(terrain.height(x0, z0), terrain.height(x0 + step, z0), fx),
+			lerpf(terrain.height(x0, z0 + step), terrain.height(x0 + step, z0 + step), fx), fz)
+
+
+func shore_spot(p: Vector3, near: float, far: float, tries := 16, dry := false) -> Vector3:
+	## A point on the bank or in the very shallows, right by open water (dry:
+	## only on the bank, out of the water), or Vector3.INF if none turned up.
+	var low := water_level() + 0.03 if dry else -0.25
 	for attempt in tries:
 		var a := _rng.randf() * TAU
 		var d := _rng.randf_range(near, far)
 		var x := p.x + cos(a) * d
 		var z := p.z + sin(a) * d
 		var h: float = terrain.height(x, z)
-		if h < -0.25 or h > 0.3 or not water_point(Vector3(x, h, z), 4.0).is_finite():
+		if h < low or h > 0.3 or not water_point(Vector3(x, h, z), 4.0).is_finite():
 			continue
 		return Vector3(x, h, z)
 	return Vector3.INF
@@ -1498,6 +1585,7 @@ func add_log(id: String, pos: Vector3, yaw: float, kind := Assets.LOG_KIND) -> N
 	lg.position = Vector3(pos.x, ground_height(pos.x, pos.z), pos.z)
 	lg.rotation.y = yaw
 	add_child(lg)
+	lg.lie_on_ground()
 	return lg
 
 

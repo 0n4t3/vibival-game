@@ -3,6 +3,8 @@ extends PanelContainer
 
 signal closed
 
+const ControlsPanel := preload("res://src/ui/controls_panel.gd")
+
 const SOURCE_URL := "https://github.com/0n4t3/vibival-game"
 
 
@@ -62,6 +64,15 @@ func _ready() -> void:
 		fs.button_pressed = Settings.fullscreen
 		fs.toggled.connect(func(on): Settings.fullscreen = on)
 		_row(grid, "Fullscreen", fs)
+
+	var controls := Button.new()
+	controls.text = "Controls..."
+	controls.pressed.connect(func():
+		visible = false
+		var p := ControlsPanel.new()
+		p.closed.connect(func(): visible = true; controls.grab_focus())
+		get_parent().add_child(p))
+	_row(grid, "Keys and gamepad", controls)
 
 	var note := Label.new()
 	note.text = "Quality and view distance changes apply fully to newly loaded areas."

@@ -1,19 +1,22 @@
 extends Node
 ## The arrival in the swamp, at the start of a new run (after the lab, or a
-## new world that skips the tutorial; Game.intro_pending). You lie on your
-## back looking up at the sky. A dragonfly flies over you and is gone (a
-## stand-in built here, not a creature: it can't attack and isn't saved).
-## Lightning strikes the nearest tree that can be felled; it comes down as if
-## cut, and its stump is left burning (swamp.strike_tree, stump.gd). Then you
-## get up, facing it. Nothing waits for input, so it plays the same with a
+## new world that skips the tutorial; Game.intro_pending). It opens on a
+## blinding flash: lightning strikes the nearest tree that can be felled,
+## which comes down as if cut, its stump left burning (swamp.strike_tree,
+## stump.gd). The white fades to the sky above you as you lie on your back,
+## the bolt fading and the tree falling. Then a dragonfly flies over you and
+## is gone (a stand-in built here, not a creature: it can't attack and isn't
+## saved), and you get up, facing the tree. Nothing waits for input, so it plays the same with a
 ## keyboard, a controller or a touch screen.
 
 const Chunk := preload("res://src/world/chunk.gd")
 
-const FLY_AT := 2.5        # seconds in: the dragonfly comes over
+const STRIKE_AT := 0.05    # seconds in: the lightning, first of all
+const WHITE_TIME := 3.0    # the flash fading to the sky
+const BOLT_TIME := 2.2     # the bolt lingering, fading
+const FLY_AT := 4.0        # the dragonfly comes over, once the tree is down
 const FLY_TIME := 3.6
-const STRIKE_AT := 7.5     # the lightning
-const RISE_AT := 10.5      # you get up
+const RISE_AT := 8.5       # you get up
 const RISE_TIME := 1.8
 const STRIKE_RANGE := 30.0 # how far to look for a tree to strike
 
@@ -145,17 +148,17 @@ func strike() -> void:
 	struck = true
 	player._shake = 0.7
 	if swamp.hud and swamp.hud.has_method("set_fade"):
-		# A blinding flash over everything, fading fast.
-		swamp.hud.set_fade(Color(1, 1, 1, 0.85))
-		swamp.hud.fade_to(Color(1, 1, 1, 0), 0.6)
+		# A blinding flash over everything, slowly clearing to the sky.
+		swamp.hud.set_fade(Color(1, 1, 1, 1))
+		swamp.hud.fade_to(Color(1, 1, 1, 0), WHITE_TIME).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	if tree.is_empty():
 		var yaw := player.rotation.y
 		var at := player.global_position + Vector3(-sin(yaw), 0, -cos(yaw)) * 40.0
 		at.y = maxf(swamp.ground_height(at.x, at.z), 0.0)
-		swamp.weather.strike(at)
+		swamp.weather.strike(at, BOLT_TIME)
 		return
 	var top_y: float = tree.at.y + Chunk.TREES[tree.kind].height * tree.s * 0.9
-	swamp.weather.strike(Vector3(tree.at.x, top_y, tree.at.z))
+	swamp.weather.strike(Vector3(tree.at.x, top_y, tree.at.z), BOLT_TIME)
 	var away: Vector3 = tree.at - player.global_position
 	away.y = 0.0
 	if away.length() < 0.01:

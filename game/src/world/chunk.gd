@@ -17,6 +17,11 @@ const TREES := {
 	"calamites": {"name": "Calamites", "r": 0.3, "tries": 9, "min_h": -0.4, "max_h": 1.8, "scale": [0.7, 1.4], "height": 10.0, "soft": true},
 	"tree_fern": {"name": "Tree Fern", "r": 0.45, "tries": 6, "min_h": 0.35, "max_h": 99.0, "scale": [0.7, 1.3], "height": 5.0, "soft": true},
 }
+## The world comes out the same at every graphics quality: trees, boulders,
+## harvestables and pickups are rolled at this density (Medium's), and the
+## quality setting only thins or thickens the ground cover, which is just
+## for looks, on rolls of its own.
+const WORLD_DENSITY := 0.75
 const SINK := 0.2        # trees stand this far down in the ground
 const STUMP_H := 0.45    # a felled tree leaves a stump this tall
 const REGROW := [16.0, 20.0]  # game days for a stump to grow back into a tree
@@ -71,6 +76,8 @@ func build(chunk_x: int, chunk_z: int, terrain: RefCounted, world: Node) -> void
 	var b = Assets.builder()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(Vector3i(cx, cz, Game.world_seed))
+	var shade := RandomNumberGenerator.new()
+	shade.seed = rng.seed
 	for z in range(0, SIZE, step):
 		for x in range(0, SIZE, step):
 			var p00 := Vector3(x, hmap[z * n + x], z)
@@ -80,18 +87,24 @@ func build(chunk_x: int, chunk_z: int, terrain: RefCounted, world: Node) -> void
 			var slope := maxf(absf(p00.y - p11.y), absf(p10.y - p01.y)) / step
 			var col: Color = terrain.ground_color(ox + x, oz + z, (p00.y + p11.y) * 0.5, slope)
 			if (x + z) % (step * 2) == 0:
-				b.tri(p00, p10, p01, col * rng.randf_range(0.92, 1.06), "terrain")
-				b.tri(p10, p11, p01, col * rng.randf_range(0.92, 1.06), "terrain")
+				b.tri(p00, p10, p01, col * shade.randf_range(0.92, 1.06), "terrain")
+				b.tri(p10, p11, p01, col * shade.randf_range(0.92, 1.06), "terrain")
 			else:
-				b.tri(p00, p11, p01, col * rng.randf_range(0.92, 1.06), "terrain")
-				b.tri(p00, p10, p11, col * rng.randf_range(0.92, 1.06), "terrain")
+				b.tri(p00, p11, p01, col * shade.randf_range(0.92, 1.06), "terrain")
+				b.tri(p00, p10, p11, col * shade.randf_range(0.92, 1.06), "terrain")
 	var ground := MeshInstance3D.new()
 	ground.mesh = b.commit(Assets.materials)
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(ground)
+	# The rest rolls on from where full-detail terrain leaves off, whatever
+	# the terrain step.
+	for i in SIZE * SIZE * 2:
+		rng.randf()
 
 	# --- Vegetation ---
 	var density := Settings.vegetation_density()
+	var look := RandomNumberGenerator.new()  # ground cover thinned or added for the quality
+	look.seed = hash(Vector3i(cz, cx, Game.world_seed))
 	var trunk_body := StaticBody3D.new()
 	_trunk_body = trunk_body
 	trunk_body.collision_layer = 1
@@ -103,7 +116,7 @@ func build(chunk_x: int, chunk_z: int, terrain: RefCounted, world: Node) -> void
 		var def: Dictionary = TREES[kind]
 		var xforms := []
 		var mine := []
-		for i in roundi(def.tries * density + rng.randf()):
+		for i in roundi(def.tries * WORLD_DENSITY + rng.randf()):
 			var lx := rng.randf_range(1.0, SIZE - 1.0)
 			var lz := rng.randf_range(1.0, SIZE - 1.0)
 			var h: float = terrain.height(ox + lx, oz + lz)
@@ -157,22 +170,30 @@ func build(chunk_x: int, chunk_z: int, terrain: RefCounted, world: Node) -> void
 		var def: Dictionary = DECOR[kind]
 		var xforms := []
 		var spots: Array[Vector2] = []
-		for i in roundi(def.tries * density):
+		for i in roundi(def.tries * WORLD_DENSITY):
 			spots.append(Vector2(rng.randf_range(0.0, SIZE), rng.randf_range(0.0, SIZE)))
 		# Dense thickets: tight clumps of 15-25 plants.
-		for c in roundi(def.get("clumps", 0) * density + rng.randf() * 0.5):
+		for c in roundi(def.get("clumps", 0) * WORLD_DENSITY + rng.randf() * 0.5):
 			var centre := Vector2(rng.randf_range(2.0, SIZE - 2.0), rng.randf_range(2.0, SIZE - 2.0))
 			for i in rng.randi_range(15, 25):
 				var o := Vector2(rng.randfn(0.0, 1.6), rng.randfn(0.0, 1.6))
 				spots.append((centre + o).clamp(Vector2.ZERO, Vector2(SIZE, SIZE)))
-		for spot in spots:
-			var lx := spot.x
-			var lz := spot.y
+		# Above Medium, more cover on rolls of its own; below, some left out.
+		var rolled := spots.size()
+		for i in maxi(roundi(def.tries * (density - WORLD_DENSITY)), 0):
+			spots.append(Vector2(look.randf_range(0.0, SIZE), look.randf_range(0.0, SIZE)))
+		var keep := minf(density / WORLD_DENSITY, 1.0)
+		for k in spots.size():
+			var r := rng if k < rolled else look
+			var lx := spots[k].x
+			var lz := spots[k].y
 			var h: float = terrain.height(ox + lx, oz + lz)
 			if h < def.min_h or h > def.max_h:
 				continue
-			var s := rng.randf_range(def.scale[0], def.scale[1])
-			xforms.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * s), Vector3(lx, h - 0.05, lz)))
+			var s := r.randf_range(def.scale[0], def.scale[1])
+			var t := Transform3D(Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3.ONE * s), Vector3(lx, h - 0.05, lz))
+			if look.randf() < keep:
+				xforms.append(t)
 		_add_multimesh(kind, xforms, 40.0 if Settings.quality == 0 else 60.0, false)
 
 	# Rocky knolls get boulders.

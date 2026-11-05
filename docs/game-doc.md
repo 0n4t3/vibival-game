@@ -64,7 +64,7 @@ Paths are relative to `game/` unless they start with `tools/` or `docs/`.
 | `src/world/plot.gd` | Farming: a hole dug with a mattock and a young seed fern growing in it |
 | `src/world/compost.gd` | A compost basket: filled to 20, composts for 15–60 days, gives compost; meat draws pests |
 | `src/world/trap.gd` | A fish trap (carried, set in water) or a snare (set on land): baited, catches while you sleep, holds a live medium animal |
-| `src/world/intro.gd` | The arrival: lying on your back, the dragonfly flyover, the lightning strike, getting up |
+| `src/world/intro.gd` | The arrival: the lightning strike and a white flash, lying on your back, the dragonfly flyover, getting up |
 | `src/world/felled_tree.gd` | A felled trunk lying in one piece: falls, rots, is cut into logs |
 | `src/world/wood_log.gd` | A loose log or short log: carried, worked, soaks and rots in water |
 | `src/world/stack.gd` | A pile of one kind of raw material on the ground |
@@ -79,6 +79,7 @@ Paths are relative to `game/` unless they start with `tools/` or `docs/`.
 | `src/ui/work_ui.gd` | Overlay while crafting on the ground |
 | `src/ui/icons.gd` | Inventory icons rendered from the item meshes |
 | `src/ui/title.gd`, `pause_menu.gd`, `settings_panel.gd` | Menus |
+| `src/ui/controls_panel.gd` | Rebinding keys, mouse buttons and the gamepad |
 | `src/ui/touch_controls.gd` | On-screen stick and buttons for touch screens |
 | `tests/check_scripts.gd` | Parses every script |
 | `tests/run_tests.gd` | The headless gameplay suite |
@@ -98,13 +99,16 @@ after sunrise. `Game.day()`, `is_night()`, `time_of_day()` (solar fraction,
 `_ready` for a new run (no `restore`) adds an `Intro` node, which:
 freezes the player with `player.lie` = 1 (eyes at 0.3 m, pitch 1.45 rad: on
 your back looking up; `player._process` applies `lie` after the usual head
-updates); at `FLY_AT` (2.5 s) flies a stand-in Meganeura (built here, not a
+updates); first of all, at `STRIKE_AT` (0.05 s), sets the HUD fade to white
+and fades it out over `WHITE_TIME` (3 s, easing in), calls `weather.strike`
+at the treetop with a `BOLT_TIME` (2.2 s) life (a bolt that long stops
+flickering after 0.5 s and fades out instead) and `swamp.strike_tree` on
+the nearest soft tree within `STRIKE_RANGE` (30 m), falling away from you
+(with none in range, the bolt hits the ground 40 m off); at `FLY_AT` (4 s),
+with the tree down, flies a stand-in Meganeura (built here, not a
 `Creature`: never hostile, not in `Game.creatures`, not saved) along a
 bezier from one side, low over your face, and off the other side in
-`FLY_TIME` (3.6 s), then frees it; at `STRIKE_AT` (7.5 s) calls
-`weather.strike` at the treetop and `swamp.strike_tree` on the nearest soft
-tree within `STRIKE_RANGE` (30 m), falling away from you (with none in range,
-the bolt hits the ground 40 m off); from `RISE_AT` (10.5 s) over
+`FLY_TIME` (3.6 s), then frees it; from `RISE_AT` (8.5 s) over
 `RISE_TIME` (1.8 s) eases `lie` back to 0 while turning you to face the
 stump, then unfreezes you and says what to do. It takes no input, so it is
 the same on desktop, Android and the web.
@@ -287,7 +291,10 @@ Dictionary that overrides the item's fields for that item
 (`inventory.def_of(i)`). Items with `data` never stack or merge, can't be
 laid out to craft with, and keep it through `add`/`take` (extra `data`
 argument), moves between bag and stash, drops (`pile_item` and
-`spawn_pickup` take `data`; `pickup.gd` saves it) and saves. Weight, not slots, limits what you carry: 8 kg in your arms,
+`spawn_pickup` take `data`; `pickup.gd` saves it) and saves. A stack keeps
+the age of its oldest item: `add` and a merge in `inventory_ui` take the
+larger age, and so do piles (`work_spot._add_pile`), so a fresh item added
+never makes the rest look fresher. Weight, not slots, limits what you carry: 8 kg in your arms,
 plus `sack_bonus()`: the best `carry_kg` of any item carried (frond sack 17, so
 25 kg; cloth sack 40, so 48 kg). Sacks (`tags: ["sack"]`) don't add up. Nothing
 past 1.5× that
@@ -299,7 +306,13 @@ for an empty `spoil`).
 ## Gathering (`src/world/harvestable.gd`, `chunk.gd`)
 
 Chunks generate pickups (sticks, river stones, chert) and harvestables, all
-with stable uids built from the chunk coordinates. Picked-up generated items
+with stable uids built from the chunk coordinates. A chunk comes out the
+same at every graphics quality, so a world moved between desktop, web and
+Android keeps its trees: the terrain's colour jitter rolls on its own
+`shade` RNG and the main one skips the draws full-detail terrain would use;
+trees and the ground cover's rolls use `WORLD_DENSITY` (0.75, Medium's);
+`Settings.vegetation_density()` only thins the ground cover or adds more on
+the separate `look` RNG. Picked-up generated items
 are remembered in `Game.taken`; harvested ones in `Game.harvested` (uid →
 game time when ready again).
 
@@ -353,15 +366,20 @@ it spoils in the bag) and is freed once that reaches `DAY_LENGTH`.
 
 **Shore stones** (`swamp._update_shore`, every 1.5 s): `SHORE_ITEMS` (11)
 sticks (`_shore_kind`: `SHORE_STICK` 30%, anywhere), river stones and chert
-(`SHORE_CHERT` 30%) and salt crusts (`SHORE_SALT` 35% of the rest landing
-above the water line) are kept within `SHORE_RANGE`
+(`SHORE_CHERT` 30%) and salt crusts are kept within `SHORE_RANGE`
 (100 m) of the player, on ground between -0.25 and 0.3 m within 4 m of swamp
 water (`shore_spot`). Each lies there for `SHORE_LIFE` 1–3 days and is then
 freed; ones over 200 m away go too. A new one washes up about every
 `DAY_LENGTH * 2 / SHORE_ITEMS` (randomised), or every 30 s while fewer than
 half are left. A new world seeds the full set. They are saved in
 `_world_state` → `"shore"` with their expiry. A picked-up one leaves the list
-(and dropped again, it is an ordinary kept drop).
+(and dropped again, it is an ordinary kept drop). Each wash-up
+(`_wash_up`) is a salt crust `SHORE_SALT` (15%) of the time: it looks for a
+spot on dry bank (`shore_spot(..., dry)`: at least 3 cm above `water_level()`)
+with four times the tries, and if none turns up a stick or stone comes
+instead. A crust sits on whichever is higher, the terrain or the ground as
+drawn (`drawn_height`: the mesh is coarser than the height function at low
+quality, and it covered crusts before). `_shore_kind` never gives salt.
 
 ## Crafting on the ground (`src/world/work_spot.gd`, `src/ui/work_ui.gd`)
 
@@ -640,7 +658,9 @@ for dev and tests.
   `house_at(pos, 6)`.
 - **Fireplace**: a `Campfire` child with `hearth` (no stone ring, called
   "Fireplace", `break_apart` refused) at `HEARTH`. It is saved inside the
-  house, not in "fires".
+  house, not in "fires". A soup pot hung there drops its tripod and hangs by
+  cords from a stick across the hood's mouth (`Assets.hearth_pot`), turned
+  to the fireplace.
 - **Saving**: `"houses"`: `to_dict` ({pos, yaw, built, fire}), restored
   before stashes so they land on the floor.
 
@@ -783,7 +803,8 @@ Recipe `soup_pot_unfired`: bench tier, `rack` "clay_platter", 10 clay and 3
 boards, 8 steps. The pot is left standing beside the bench (`add_carried`).
 A pot (group "soup_pots", layer 2) is a big `Assets.pot` (`SCALE` 2.8)
 hanging `HANG_Y` (0.6 m) up from the top of a tripod of three boards
-(`Assets.soup_pot`, 1.75 m tall, feet 1 m out, outside a fire's ring).
+(`Assets.soup_pot`, 1.75 m tall, feet 1 m out, outside a fire's ring). Over
+a house's fireplace it is `Assets.hearth_pot` instead (no tripod).
 
 - **Carrying**: `can_haul`/`haul_*`/`set_hauled` like a log, held further
   out (`haul_radius` 0.9) and lower (`haul_lift` 0.15) so it doesn't fill the
@@ -983,7 +1004,9 @@ Calamites and tree ferns are soft; Lepidodendron and Sigillaria need a metal
 axe (none yet). Trees stand `SINK` (0.2 m) into the ground.
 
 - **Felling**: C beside a standing tree (`swamp.tree_ahead`, 1.6 m) kneels
-  with `work.tree` set. `work_spot.wood_options()` offers the
+  with `work.tree` set; holding a `chop` tool there, `player._axe_prompt`
+  shows "Kneel to fell the ... [C]" (or that a stone axe can't fell a hard
+  one). `work_spot.wood_options()` offers the
   `Items.WOODWORK` entries `on` "tree": steps `clamp(round(r * 20), 5, 10)`,
   needs a `chop` tool (laid out or in the bag) and a soft tree. The last
   stroke calls `swamp.fell_tree(tree, away)` → `chunk.fell(t)`: the instance
@@ -1307,8 +1330,12 @@ that aren't already after the player. The stone becomes a pickup that is not sav
 ## Sleep, weather and saving
 
 - **Weather**: rain lasts 2–4 min, dry spells 4–8 min (`_update_weather`,
-  `set_rain`). Rain speeds fuel and torch burning, dims torches and makes
-  sleeping chilly.
+  `set_rain`). A new world's first day is dry until `DRY_UNTIL` (clock 1140,
+  dusk) plus up to 2 min. Rain speeds fuel and torch burning, dims torches
+  and makes sleeping chilly. The drops (`RAIN_SHADER`) are discarded under
+  the roof of any house within 40 m (`_update_roofs`, up to `MAX_ROOFS`,
+  each roof side only once built), so rain doesn't fall indoors or on the
+  porch.
 - **Rare weather** (`src/world/weather.gd`, `swamp.weather`): from
   `FIRST_DAY` (index 2, day three) `roll_day` gives each day a `CHANCE` (20%)
   of one event from `KINDS`. Night kinds (`aurora`, `bright_moon`, `meteors`)
@@ -1374,8 +1401,10 @@ that aren't already after the player. The stone becomes a pickup that is not sav
 
 - **HUD** (`hud.gd`): the stamina bar, the hunger and thirst lines above it
   (`vitals.hunger_words()`, `thirst_words()`, each left out at level 0), and
-  the status words above those (`vitals.status_words()`), the blindness overlay, the hotbar and carried weight, the clock, the look prompt (on
-  touch screens `[E]`, `[C]` and `[Q]` read `[Act]`, `[Craft]` and `[Drop]`),
+  the status words above those (`vitals.status_words()`), the blindness overlay, the hotbar and carried weight, the clock, the look prompt (through
+  `Settings.hint`: `[E]`, `[C]`, `[Q]`, `[Right-click]` and "Q puts it
+  down" name what is bound to interact, craft, drop and use on the device in
+  use, e.g. `[X]` on a pad, `[Act]` on a touch screen),
   the look tooltip panel (`player.tooltip`, from the focus's `tooltip()`),
   messages, the sleep confirmation line, the waypoint marker. The swamp has
   no pop-up tips; instructions are only shown while crafting and in the lab.
@@ -1401,7 +1430,36 @@ that aren't already after the player. The stone becomes a pickup that is not sav
   `CLEAR_PAD`): it widens the FOV up to `MAX_FOV` (75), then steps the eye back
   (`player.work_back`, up to `MAX_BACK` 1.2 m), and turns the camera by
   `player.work_view` (x yaw, y pitch, z extra FOV) only when something is
-  outside the rect.
+  outside the rect. On a pad the look actions move a drawn cursor
+  (`_cursor_mark`, `CURSOR_SPEED` 700 px/s; `warp_mouse` does nothing on the
+  web or Android), which starts at the middle of `clear_rect()` and hides when
+  the real mouse moves. `_pad_click`: jump (A) clicks at it (a tray slot lays
+  one, a Done, Stop or recipe button presses, anything else is
+  `spot.click`), and use from a pad (LT) right-clicks (a tray slot lays the
+  stack). `_pad_hover` lights tray slots and shows a recipe's how-text.
+- **Controls** (`controls_panel.gd`, from Settings → Controls...): a row per
+  `Settings.BINDABLE` action with two keyboard/mouse slots and a gamepad
+  slot. Picking one waits `WAIT_TIME` (6 s) and swallows every key, mouse
+  button and pad event meanwhile: a key or mouse button (keyboard slots), a
+  pad button, or an axis that has moved `AXIS_PRESS` (0.6) away from both 0
+  and its value when waiting began (gamepad slot: so a trigger resting at -1
+  isn't taken). Delete or Backspace clears, Esc cancels. Back saves.
+- **Bindings** (`settings.gd`): `bindings` is action → [kb/mouse, kb/mouse,
+  pad], each `{"key": physical keycode}`, `{"mouse": button}`,
+  `{"button": joy button}`, `{"axis", "dir"}` or `{}`, from
+  `DEFAULT_BINDINGS`; only actions that differ are saved, under
+  `[bindings]`. `apply_bindings()` rebuilds the InputMap with `device = -1`
+  on every event: browsers number pads by their slot, and Android gives each
+  the lowest free number, so device 0 alone missed pads. Esc and Android's
+  back key are always on pause. On Android a trigger-axis binding also adds
+  joy buttons 15/16 (Godot's Android L2/R2). `set_binding()` takes the
+  binding off any other action and returns it. The built-in `ui_*` pad
+  events are switched to `device = -1` too. Godot's controller database maps
+  the browser's "standard" pads to its own layout; Android buttons come
+  pre-mapped, but its axes are numbered by sorting the device's axes, so
+  sticks and triggers can differ from pad to pad (fix: rebind).
+  `button_name(action)` reads the bindings (pad slot first when `using_pad`;
+  touch has `TOUCH_NAMES`).
 - **Touch controls** (`touch_controls.gd`): made by `scene_base` when
   `Settings.touch` is set (any `mobile` build, or `--touch`, which also turns
   mouse clicks into touches). Thumb down on the left 40% of the screen is a

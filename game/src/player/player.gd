@@ -12,6 +12,7 @@ const Inventory := preload("res://src/core/inventory.gd")
 const ThrownRock := preload("res://src/world/thrown_rock.gd")
 const Fishing := preload("res://src/world/fishing.gd")
 const House := preload("res://src/world/house.gd")
+const Chunk := preload("res://src/world/chunk.gd")
 
 const WALK := 3.6
 const SPRINT := 6.2
@@ -553,12 +554,30 @@ func _update_focus() -> void:
 			prompt = c.prompt(self) if c.has_method("prompt") else "Interact [E]"
 			tooltip = c.tooltip(self) if c.has_method("tooltip") else ""
 			return
+	if _axe_prompt():
+		return
 	if _look_at_water(hit):
 		var held: String = Game.inventory.held_id()
 		if Items.def(held).has("hold") and _water_at.is_finite():
 			prompt = "Fill %s [E]" % Items.item_name(held)
 		else:
 			prompt = "Drink swamp water [E]"
+
+
+func _axe_prompt() -> bool:
+	## With an axe in hand at a standing tree: how to fell it.
+	var held: String = Game.inventory.held_id()
+	if not "chop" in Items.def(held).get("tags", []) or world == null or not world.has_method("tree_ahead"):
+		return false
+	var t: Dictionary = world.tree_ahead()
+	if t.is_empty():
+		return false
+	var def: Dictionary = Chunk.TREES[t.kind]
+	if def.get("soft", true) or Items.def(held).get("tier", "") != "stone":
+		prompt = "Kneel to fell the %s [C]" % def.get("name", "tree")
+	else:
+		prompt = "The %s is too hard to fell with a stone axe" % def.get("name", "tree")
+	return true
 
 
 func _look_at_water(hit: Dictionary) -> bool:

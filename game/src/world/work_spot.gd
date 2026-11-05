@@ -246,7 +246,7 @@ func _add_pile(id: String, n: int, age: float) -> void:
 		piles.append({"id": id, "n": 0, "age": age})
 		p = piles.size() - 1
 	var pile: Dictionary = piles[p]
-	pile.age = (pile.age * pile.n + age * n) / float(pile.n + n)
+	pile.age = maxf(pile.age, age) if pile.n > 0 else age
 	pile.n += n
 
 
@@ -817,7 +817,11 @@ func _wood_step() -> void:
 				global_position += shift
 				global_position.y = _ground_at(global_position)
 				if player:
+					# Onto the ground there: up a slope you would end up
+					# inside the hill and drop through it.
 					player.global_position += shift
+					player.global_position.y = _ground_at(player.global_position) + 0.05
+					player.velocity = Vector3.ZERO
 		"strip":
 			for id in r.give:
 				_give(id, r.give[id], 0.0)
@@ -834,6 +838,7 @@ func _wood_step() -> void:
 					world.add_log("short_log", mid + axis * (i - 1.5) * Assets.SHORT_LOG_LEN * 1.1, yaw, wood.kind)
 			wood.set_id("short_log")
 			wood.global_position = mid + axis * 1.5 * Assets.SHORT_LOG_LEN * 1.1
+			wood.lie_on_ground()
 			wood = null
 			Game.notify("You cut the log into four short logs.")
 		"hew", "split":
@@ -1177,7 +1182,7 @@ func view_points() -> Array:
 		if recipe.has("wood") and wood_on() != "":
 			out.append(_wood_mark(k, n))
 		elif recipe.get("act", "") == "steps" and not recipe.has("butcher") and not recipe.has("house") and not recipe.has("trap") and not recipe.has("plot"):
-			out.append(to_global(_work.position + _target(recipe.out, k) * _work.scale))
+			out.append(to_global(_work.transform * _target(recipe.out, k)))
 	if recipe.is_empty():
 		for p in _piles:
 			out.append(p.global_position + Vector3(0, 0.04, 0))
@@ -1232,6 +1237,29 @@ func _floor(local: Vector3) -> float:
 	return clampf(h - global_position.y, -0.3, 0.3) if h > -INF else 0.0
 
 
+func _fit_to_ground() -> void:
+	## Tips the workpiece to the slope under it and lifts it clear of the
+	## ground under its corners, so a long piece (a spear) never sinks into a
+	## hillside. (A bench top is flat.)
+	if bench or _work.mesh == null:
+		return
+	var box := _work.mesh.get_aabb()
+	var s := _work.scale.x
+	var mid := _work.position + box.get_center() * s
+	var hx := maxf(box.size.x * 0.5 * s, 0.05)
+	var hz := maxf(box.size.z * 0.5 * s, 0.05)
+	var rise_x := _floor(mid + Vector3(hx, 0, 0)) - _floor(mid - Vector3(hx, 0, 0))
+	var rise_z := _floor(mid + Vector3(0, 0, hz)) - _floor(mid - Vector3(0, 0, hz))
+	_work.rotation = Vector3(-clampf(atan2(rise_z, 2.0 * hz), -0.4, 0.4), 0.0, clampf(atan2(rise_x, 2.0 * hx), -0.4, 0.4))
+	var lift := 0.0
+	for c in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(-1, 0, 1), Vector3(1, 0, 1), Vector3.ZERO]:
+		var corner := box.get_center() + Vector3(c.x * box.size.x * 0.5, 0.0, c.z * box.size.z * 0.5)
+		corner.y = box.position.y
+		var at: Vector3 = _work.transform * corner
+		lift = maxf(lift, _floor(at) - at.y)
+	_work.position.y += lift
+
+
 # --- Visuals ---------------------------------------------------------------------------
 
 func _rebuild_piles() -> void:
@@ -1270,6 +1298,7 @@ func _rebuild_work() -> void:
 	_marker.visible = false
 	_hammer.visible = false
 	_work.position = WORK + Vector3(0, _floor(WORK), 0)
+	_work.rotation = Vector3.ZERO
 	_work.scale = Vector3.ONE * float(ZOOM.get(recipe.get("out", ""), 1.0))
 	if house:
 		_work.mesh = null
@@ -1629,6 +1658,7 @@ func _rebuild_work() -> void:
 			else:
 				b.cylinder(Vector3(0.25, 0, 0.2), Vector3(0.25, 0.1, 0.2), 0.1, 0.1, 8, COPPER)
 	_work.mesh = b.commit(Assets.materials) if not b.is_empty() else null
+	_fit_to_ground()
 	if recipe.out == "workbench":
 		_work.position = BUILD_AT + Vector3(0, player.world.bench_height(to_global(BUILD_AT), global_rotation.y) - global_position.y, 0)
 	if recipe.has("wood") and wood_on() != "":
@@ -1662,7 +1692,7 @@ func _rebuild_work() -> void:
 		_marker.visible = true
 		_marker.material_override = null
 		_marker_size = 1.0
-		_marker.position = _work.position + _target(recipe.out, k) * _work.scale + Vector3(0, 0.03, 0)
+		_marker.position = _work.transform * _target(recipe.out, k) + Vector3(0, 0.03, 0)
 
 
 var _on_top: StandardMaterial3D

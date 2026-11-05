@@ -4,8 +4,9 @@ extends Control
 ## what the laid-out items can make on the right, and instructions above the
 ## tray.
 ## Clicks and drags elsewhere go to the work spot in 3D.
-## Gamepad: the right stick moves the cursor, A clicks, X does the next step
-## (hold it to twist), B puts the work down.
+## Gamepad: the look stick moves a drawn cursor (pads can't move the mouse
+## on the web or Android), A clicks, the use trigger clicks as a right-click,
+## X does the next step (hold it to twist), B puts the work down.
 
 const Icons := preload("res://src/ui/icons.gd")
 const Inventory := preload("res://src/core/inventory.gd")
@@ -19,6 +20,7 @@ const BASE_FOV := 50.0
 const MAX_FOV := 75.0
 const TOP := 40.0        # the clock and day line along the top
 const MAX_BACK := 1.2    # m the camera may step back when the widest view isn't enough
+const CURSOR_SPEED := 700.0  # px a second at full stick
 
 var spot: Node3D = null
 var _tray: Array[Button] = []
@@ -32,6 +34,9 @@ var _drag := false
 var _side: PanelContainer
 var _top: PanelContainer
 var _hover_how := ""
+var _done: Button
+var _cursor := Vector2.ZERO  # the gamepad cursor, shown once the stick moves it
+var _cursor_mark: Control
 
 
 class TraySlot extends Button:
@@ -142,10 +147,9 @@ func _ready() -> void:
 	l.modulate = Color(1, 1, 1, 0.6)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(l)
-	var done := Button.new()
-	done.text = "Done [C]"
-	done.pressed.connect(func(): leave.emit())
-	row.add_child(done)
+	_done = Button.new()
+	_done.pressed.connect(func(): leave.emit())
+	row.add_child(_done)
 	var grid := GridContainer.new()
 	grid.columns = 15
 	grid.add_theme_constant_override("h_separation", 4)
@@ -163,6 +167,15 @@ func _ready() -> void:
 		s.mouse_exited.connect(_set_hover.bind(-1))
 		grid.add_child(s)
 		_tray.append(s)
+
+	_cursor_mark = Control.new()
+	_cursor_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_cursor_mark.visible = false
+	_cursor_mark.draw.connect(func():
+		_cursor_mark.draw_circle(Vector2.ZERO, 8.0, Color(0, 0, 0, 0.3))
+		_cursor_mark.draw_arc(Vector2.ZERO, 8.0, 0.0, TAU, 24, Color(1.0, 0.95, 0.75), 2.0)
+		_cursor_mark.draw_circle(Vector2.ZERO, 1.5, Color(1.0, 0.95, 0.75)))
+	add_child(_cursor_mark)
 
 	Game.inventory.changed.connect(_refresh)
 	Assets.icons_ready.connect(_redraw_tray)
@@ -186,6 +199,7 @@ func open(work: Node3D) -> void:
 	visible = true
 	_drag = false
 	_hover_how = ""
+	_cursor_mark.visible = false
 	if spot.player:
 		spot.player.work_view = Vector3.ZERO
 		spot.player.work_back = 0.0
@@ -232,13 +246,60 @@ func _process(delta: float) -> void:
 	_frame_work()
 	if Input.get_connected_joypads().is_empty():
 		return
-	# Gamepad: the right stick drives the cursor.
-	var stick := Vector2(Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))
-	if stick.length() > 0.2:
-		var vp := get_viewport()
-		vp.warp_mouse(vp.get_mouse_position() + stick * 700.0 * delta)
+	# Gamepad: the look stick drives the cursor.
+	var stick := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if stick != Vector2.ZERO:
+		if not _cursor_mark.visible:
+			_cursor = clear_rect().get_center()
+			_cursor_mark.visible = true
+		_cursor = (_cursor + stick * CURSOR_SPEED * delta).clamp(Vector2.ZERO, get_viewport_rect().size)
+		_cursor_mark.position = _cursor
+		_pad_hover()
 	if Input.is_action_pressed("interact"):
 		spot.hold(delta)
+
+
+func _input(ev: InputEvent) -> void:
+	# The real mouse takes over from the gamepad cursor.
+	if _cursor_mark and _cursor_mark.visible and ev is InputEventMouseMotion and ev.relative.length() > 2.0:
+		_cursor_mark.visible = false
+
+
+func _pad_hover() -> void:
+	## What the gamepad cursor is over lights up as the mouse would.
+	var slot := -1
+	for s in _tray:
+		if s.get_global_rect().has_point(_cursor):
+			slot = s.index
+	if slot != _hover:
+		_set_hover(slot)
+	var how := ""
+	for b in _make.get_children():
+		if b is Button and b.has_meta("how") and b.get_global_rect().has_point(_cursor) \
+				and _make_scroll.get_global_rect().has_point(_cursor):
+			how = b.get_meta("how")
+	if how != _hover_how:
+		_show_how(how)
+
+
+func _pad_click(right: bool) -> void:
+	## A gamepad click at the cursor (or at the mouse if it hasn't moved):
+	## a tray slot lays an item (the stack for a right-click), a button
+	## presses, anything else goes to the work.
+	var at := _cursor if _cursor_mark.visible else get_viewport().get_mouse_position()
+	for s in _tray:
+		if s.get_global_rect().has_point(at):
+			spot.lay(s.index, 1 << 20 if right else 1)
+			return
+	var buttons: Array = [_done]
+	if _make_scroll.get_global_rect().has_point(at):
+		buttons += _make.get_children()
+	for b in buttons:
+		if b is Button and not b.disabled and b.is_visible_in_tree() and b.get_global_rect().has_point(at):
+			if not right:
+				b.pressed.emit()
+			return
+	spot.click(at, right)
 
 
 func _unhandled_input(ev: InputEvent) -> void:
@@ -249,14 +310,10 @@ func _unhandled_input(ev: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif ev.is_action_pressed("jump"):
 		# Gamepad A: click where the cursor is.
-		var at := get_viewport().get_mouse_position()
-		var hit := false
-		for s in _tray:
-			if s.get_global_rect().has_point(at):
-				spot.lay(s.index, 1)
-				hit = true
-		if not hit:
-			spot.click(at)
+		_pad_click(false)
+		get_viewport().set_input_as_handled()
+	elif ev.is_action_pressed("use") and (ev is InputEventJoypadButton or ev is InputEventJoypadMotion):
+		_pad_click(true)
 		get_viewport().set_input_as_handled()
 	elif ev.is_action_pressed("drop"):
 		leave.emit()
@@ -341,6 +398,7 @@ func _refresh() -> void:
 	if not visible or spot == null:
 		return
 	_redraw_tray()
+	_done.text = "Done [%s]" % Settings.button_name("craft")
 	_info.text = _hover_how if _hover_how != "" and spot.recipe.is_empty() else spot.instructions()
 	_bar.visible = spot.recipe.get("act", "") == "twist"
 	_bar.value = spot.progress
@@ -385,6 +443,7 @@ func _refresh() -> void:
 		b.disabled = not o.missing.is_empty()
 		# How it is made shows in the instructions, not in a pop-up that would
 		# cover the recipes below it.
+		b.set_meta("how", r.how)
 		b.mouse_entered.connect(_show_how.bind(r.how))
 		b.mouse_exited.connect(_show_how.bind(""))
 		b.pressed.connect(spot.begin.bind(r))

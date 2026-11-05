@@ -1780,13 +1780,37 @@ func canteen(b, stopper: Color, at := Vector3.ZERO, done := 1.0) -> void:
 		b.tube(pts, radii, 4, [CORD], "fiber")
 
 
-func soup_pot(b, col: Color) -> void:
+func hearth_pot(id: String) -> Mesh:
+	## A soup pot as it hangs in a house's fireplace: from a stick wedged
+	## across the mouth of the hood, no tripod (its legs would run up through
+	## the hood).
+	var key := "hearth_item_" + id
+	if not _cache.has(key):
+		var b := MeshBuilder.new()
+		soup_pot(b, Items.def(id).get("color", Color(0.6, 0.6, 0.6)), true)
+		_cache[key] = b.commit(materials)
+	return _cache[key]
+
+
+func soup_pot(b, col: Color, hearth := false) -> void:
 	## A big pot hanging by two cords from the top of a tripod of boards, its
 	## bottom clear of a campfire's flames. The tripod's feet stand outside the
-	## fire's ring of stones. See soup_pot.gd for the sizes.
+	## fire's ring of stones. In a fireplace (hearth) the cords go up to a
+	## stick across the hood's mouth instead (house.gd's flue starts 1.05 m
+	## up, 0.39 m either side). See soup_pot.gd for the sizes.
 	var scale := 2.8
 	var hang := 0.6
 	var top := 1.75
+	var rim := hang + 0.19 * scale
+	if hearth:
+		var bar_y := 1.12
+		b.cylinder(Vector3(-0.4, bar_y, 0), Vector3(0.4, bar_y, 0), 0.022, 0.022, 5, WOOD, Color(-1, 0, 0), "wood")
+		for s in [-1.0, 1.0]:
+			var lug := Vector3(0.082 * scale + 0.03, rim - 0.07, 0) * Vector3(s, 1, 1)
+			b.blob(lug, Vector3(0.04, 0.03, 0.035), 2, 5, col, null, 0.0, "clay")
+			b.cylinder(lug, Vector3(0.2 * s, bar_y - 0.02, 0), 0.008, 0.008, 3, CORD, Color(-1, 0, 0), "fiber")
+		pot(b, col, scale, 1.0, Vector3(0, hang, 0))
+		return
 	var board: Color = Items.def("board").color * 0.85
 	var apex := Vector3(0, top, 0)
 	for i in 3:
@@ -1800,7 +1824,6 @@ func soup_pot(b, col: Color) -> void:
 		b.box(mid, Vector3(0.12, foot.distance_to(apex) + 0.12, 0.035), board * (0.95 + 0.04 * i), basis, "wood")
 	# The pin through the tripod's top, and the cords down to the pot's lugs.
 	b.cylinder(apex + Vector3(-0.09, 0.02, 0), apex + Vector3(0.09, 0.02, 0), 0.025, 0.025, 5, WOOD, Color(-1, 0, 0), "wood")
-	var rim := hang + 0.19 * scale
 	for s in [-1.0, 1.0]:
 		var lug := Vector3(0.082 * scale + 0.03, rim - 0.07, 0) * Vector3(s, 1, 1)
 		b.blob(lug, Vector3(0.04, 0.03, 0.035), 2, 5, col, null, 0.0, "clay")
