@@ -18,9 +18,13 @@ dies (see [Fire](crafting.md#fire-and-cooking)).
 
 From the title screen choose **New world**, give it a name, and pick a start:
 
-- **Start in the lab (tutorial)**: pick up parts, craft and install the
-  accelerator components, then switch it on. This teaches crafting and the
-  inventory.
+- **Start in the lab (tutorial)**: ride the elevator down to the
+  breakroom, have two coffees (pick up the mug, pour at the coffee pot,
+  then drink it with right-click or Use), and read the papers on the table
+  to find a keycard. Then pick up parts in the lab, craft and install the
+  accelerator components, and switch it on. This teaches crafting and the
+  inventory. The pages are worth reading: they hint at things you will
+  need later.
 - **Start in the swamp (skip tutorial)**: go straight to the swamp.
 
 Tick **Debug world** first for a world where you can sleep and save at any
@@ -81,7 +85,8 @@ it. See [Sleeping and saving](sleeping-and-saving.md).
 
 ### Touch screens
 
-On a phone or tablet the controls are on the screen:
+On a phone or tablet the controls are on the screen. Using a gamepad or a
+keyboard instead? Switch them off with **Settings → Touch controls**.
 
 - **Walk**: put your left thumb down anywhere on the left side of the screen
   and slide it. Let go to stop.

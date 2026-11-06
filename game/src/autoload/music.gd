@@ -36,6 +36,12 @@ const FIRST_GAP := 0.25
 const TITLE_WAIT := 30.0     # seconds on the title screen before any music
 const OPENING := "res://music/empty-basin.mp3"
 const OPENING_WAIT := 30.0   # into a new world (Common or Rare)
+## The tutorial's elevator ride down to the lab (lab.gd) has its own music,
+## fading in as you find yourself in the car and looping until you step
+## out: this file (.mp3 or .ogg), kept out of the random choice.
+const ELEVATOR := "res://music/elevator"
+const ELEVATOR_IN := 2.0     # seconds to fade it in
+const ELEVATOR_OUT := 0.8    # and out, quickly, once you are out of the car
 
 var tracks: Array[String] = []
 var current := ""         # path of the track playing or fading out
@@ -45,6 +51,8 @@ var _player: AudioStreamPlayer
 var _rng := RandomNumberGenerator.new()
 var _streams := {}
 var _fading := false
+var _fade_time := FADE    # seconds the fade out takes
+var _rising := 0.0        # dB a second while fading in
 var _frequency := -1
 var _clock := 0.0         # seconds since the game started, paused or not
 var _started_at := -INF   # _clock when the last track started
@@ -82,7 +90,7 @@ func _dev_start() -> void:
 func find_tracks() -> Array[String]:
 	var out: Array[String] = []
 	for f in DirAccess.get_files_at(DIR):
-		if f.get_extension().to_lower() in ["mp3", "ogg"]:
+		if f.get_extension().to_lower() in ["mp3", "ogg"] and DIR.path_join(f.get_basename()) != ELEVATOR:
 			out.append(DIR.path_join(f))
 	out.sort()
 	return out
@@ -118,6 +126,33 @@ func enter(scene_name: String, fresh := false) -> void:
 		wait = OPENING_WAIT
 	else:
 		wait = next_gap() * FIRST_GAP
+
+
+func elevator(on: bool) -> void:
+	## Starts the elevator music (if there is a track for it and music is
+	## on), or fades it out.
+	if not on:
+		if current.begins_with(ELEVATOR):
+			stop(true, ELEVATOR_OUT)
+		return
+	if Settings.music_frequency == Settings.MusicFrequency.OFF:
+		return
+	for ext in ["ogg", "mp3"]:
+		var path: String = ELEVATOR + "." + ext
+		if not FileAccess.file_exists(path):
+			continue
+		var s := load_track(path)
+		if s == null:
+			continue
+		s.set("loop", true)
+		current = path
+		_fading = false
+		_player.stream = s
+		_player.volume_db = -60.0
+		_rising = 60.0 / ELEVATOR_IN
+		_player.play()
+		wait = INF
+		return
 
 
 func next_gap() -> float:
@@ -172,6 +207,7 @@ func play_next() -> void:
 		return
 	current = path
 	_fading = false
+	_rising = 0.0
 	_player.stream = s
 	_player.volume_db = 0.0
 	_player.play()
@@ -181,19 +217,25 @@ func play_next() -> void:
 	wait = _started_len + next_gap()
 
 
-func stop(fade := true) -> void:
+func stop(fade := true, seconds := FADE) -> void:
+	_rising = 0.0
 	if not _player.playing:
 		return
 	if fade:
 		_fading = true
+		_fade_time = seconds
 	else:
 		_player.stop()
 
 
 func _process(delta: float) -> void:
 	_clock += delta
+	if _rising > 0.0:
+		_player.volume_db = minf(_player.volume_db + delta * _rising, 0.0)
+		if _player.volume_db >= 0.0:
+			_rising = 0.0
 	if _fading:
-		_player.volume_db -= delta * 60.0 / FADE
+		_player.volume_db -= delta * 60.0 / _fade_time
 		if _player.volume_db <= -60.0:
 			_player.stop()
 			_fading = false

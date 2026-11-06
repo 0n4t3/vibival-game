@@ -1,15 +1,28 @@
 extends "res://src/world/scene_base.gd"
-## Tutorial: a physics lab at night. The scientist gathers parts, crafts the
-## final accelerator components, installs them and switches the machine on.
-## Teaches movement, pickup, inventory, crafting and the hotbar.
+## Tutorial: a physics lab at night. It opens with the ride down in the
+## elevator (elevator_intro.gd) to the breakroom outside the lab
+## (breakroom.gd): two coffees teach picking things up, holding them, using
+## them on something and drinking, and reading through a stack of papers at
+## the table (laying them out, then "crafting" a page at a time) turns up a
+## keycard for the lab door. In the lab the scientist gathers parts, crafts
+## the final accelerator components, installs them and switches the machine
+## on. Teaches movement, pickup, inventory, crafting and the hotbar.
+
+const Breakroom := preload("res://src/world/breakroom.gd")
+const ElevatorIntro := preload("res://src/world/elevator_intro.gd")
 
 const RING_R := 2.6
 const RING_Y := 1.15
 const RING_CENTER := Vector3(0, 0, -1.5)
+const RING_STEPS := 24
 
 const REQUIRED := {"beam_pipe": 2, "magnet_coil": 4, "control_board": 1, "copper_wire": 1, "power_cell": 1}
 
-var step := "move"
+var step := "ride"
+var breakroom: Node3D
+var coffees := 0          # drunk in the breakroom
+var _intro: CanvasLayer = null
+var _riding := true       # still in the elevator (its music plays)
 var installed := {}       # mount name -> true
 var _start_pos := Vector3.ZERO
 var _lights: Array[OmniLight3D] = []
@@ -65,16 +78,25 @@ func _ready() -> void:
 	_build_room()
 	_build_accelerator()
 	_place_parts()
-	_start_pos = Vector3(-1.0, 0.05, 4.3)
+	breakroom = Breakroom.new().setup(self)
+	add_child(breakroom)
+	_start_pos = Breakroom.CAR
 	setup_common(_start_pos, false)
-	player.rotation.y = 0.0
+	player.rotation.y = Breakroom.CAR_YAW
 	Game.picked.connect(func(_id): check_steps())
-	Game.crafted.connect(func(_id): check_steps())
+	Game.crafted.connect(_on_crafted)
 	Game.inventory.changed.connect(_update_objectives)
 	hud.set_fade(Color(0, 0, 0, 1))
-	hud.fade_to(Color(0, 0, 0, 0), 2.0)
-	hud.show_message("Night shift, Lab 4.")
-	_set_step("move")
+	_set_step("ride")
+	if not Game.dev.has("start") or Game.dev.has("intro"):
+		_intro = ElevatorIntro.new().setup(self)
+		add_child(_intro)
+	else:
+		# Dev starts skip the ride (unless --intro): the doors are open.
+		hud.fade_to(Color(0, 0, 0, 0), 1.0)
+		breakroom.open_elevator(true)
+		Music.elevator(true)
+		intro_done()
 
 
 func ground_height(_x: float, _z: float) -> float:
@@ -103,13 +125,12 @@ func _build_room() -> void:
 			b.quad(Vector3(x, 0, z), Vector3(x + 1, 0, z), Vector3(x + 1, 0, z + 1), Vector3(x, 0, z + 1), c)
 	var wall := Color(0.62, 0.64, 0.6)
 	b.box(Vector3(0, 1.8, -7.1), Vector3(12.4, 3.6, 0.2), wall)
-	b.box(Vector3(0, 1.8, 5.1), Vector3(12.4, 3.6, 0.2), wall)
+	for spec in _door_wall():
+		b.box(spec[0], spec[1], wall)
 	b.box(Vector3(-6.1, 1.8, -1), Vector3(0.2, 3.6, 12.4), wall * 0.95)
 	b.box(Vector3(6.1, 1.8, -1), Vector3(0.2, 3.6, 12.4), wall * 0.95)
 	b.box(Vector3(0, 3.65, -1), Vector3(12.4, 0.1, 12.4), Color(0.5, 0.5, 0.5))
 	b.box(Vector3(0, 0.08, -7.0), Vector3(12, 0.16, 0.05), Color(0.2, 0.2, 0.22))
-	# Door
-	b.box(Vector3(3.5, 1.05, 5.0), Vector3(1.0, 2.1, 0.05), Color(0.35, 0.4, 0.5))
 	# Window to the night
 	b.box(Vector3(-6.0, 1.9, 1.5), Vector3(0.05, 1.2, 2.2), Color(0.04, 0.06, 0.14))
 	# Benches
@@ -156,13 +177,13 @@ func _build_room() -> void:
 	add_child(body)
 	for spec in [
 		[Vector3(0, -0.1, -1), Vector3(12.4, 0.2, 12.4)],
-		[Vector3(0, 1.8, -7.1), Vector3(12.4, 3.6, 0.2)], [Vector3(0, 1.8, 5.1), Vector3(12.4, 3.6, 0.2)],
+		[Vector3(0, 1.8, -7.1), Vector3(12.4, 3.6, 0.2)],
 		[Vector3(-6.1, 1.8, -1), Vector3(0.2, 3.6, 12.4)], [Vector3(6.1, 1.8, -1), Vector3(0.2, 3.6, 12.4)],
 		[Vector3(0, 3.7, -1), Vector3(12.4, 0.2, 12.4)],
 		[Vector3(-4.6, 0.45, 2.0), Vector3(1.2, 0.9, 3.0)], [Vector3(4.6, 0.45, 2.0), Vector3(1.2, 0.9, 3.0)],
 		[Vector3(4.6, 0.45, -4.8), Vector3(1.2, 0.9, 2.6)], [Vector3(-4.0, 1.3, -6.75), Vector3(2.6, 2.6, 0.5)],
 		[Vector3(-5.6, 0.9, -4.0), Vector3(0.8, 1.8, 1.2)], [Vector3(2.4, 0.45, 2.6), Vector3(1.6, 0.9, 0.8)],
-	]:
+	] + _door_wall():
 		var cs := CollisionShape3D.new()
 		var bs := BoxShape3D.new()
 		bs.size = spec[1]
@@ -194,6 +215,18 @@ func _build_room() -> void:
 	add_child(console)
 
 
+func _door_wall() -> Array:
+	## The wall onto the breakroom, either side of and over the lab door
+	## (breakroom.gd hangs the door in the gap): [[centre, size], ...].
+	var x0 := Breakroom.DOOR_X - 0.5
+	var x1 := Breakroom.DOOR_X + 0.5
+	return [
+		[Vector3((-6.2 + x0) * 0.5, 1.8, 5.1), Vector3(x0 + 6.2, 3.6, 0.2)],
+		[Vector3((x1 + 6.2) * 0.5, 1.8, 5.1), Vector3(6.2 - x1, 3.6, 0.2)],
+		[Vector3(Breakroom.DOOR_X, 2.85, 5.1), Vector3(1.0, 1.5, 0.2)],
+	]
+
+
 func _bench(b, base: Vector3, size: Vector3) -> void:
 	b.box(base + Vector3(0, size.y - 0.04, 0), Vector3(size.x, 0.08, size.z), Color(0.5, 0.44, 0.36))
 	for sx in [-1, 1]:
@@ -207,8 +240,22 @@ func _build_accelerator() -> void:
 	var steel := Color(0.72, 0.74, 0.78)
 	var c := RING_CENTER
 	b.cylinder(c, c + Vector3(0, 0.3, 0), RING_R + 0.4, RING_R + 0.4, 24, Color(0.5, 0.52, 0.55))
-	var n := 24
+	var n := RING_STEPS
 	var gaps := [8, 16]  # beam segment mounts (left and back-right of the ring)
+	# The pipe bends round in one tube between each pair of mounts, with a
+	# flange where it meets a beam segment, so its joints have no seams.
+	for gi in gaps.size():
+		var from: int = gaps[gi] + 2
+		var to: int = gaps[(gi + 1) % gaps.size()]
+		if to < from:
+			to += n
+		var arc := _ring_arc(from, to)
+		b.tube(arc, _radii(arc, 0.12), 8, [steel], "metal")
+		for step_at in [from, to]:
+			var a: float = TAU * step_at / n
+			var along := Vector3(-sin(a), 0, cos(a)) * 0.04
+			var at := c + Vector3(cos(a) * RING_R, RING_Y, sin(a) * RING_R)
+			b.cylinder(at - along, at + along, 0.17, 0.17, 12, Color(0.55, 0.57, 0.6), Color(-1, 0, 0), "metal")
 	for i in n:
 		var a0 := TAU * i / n
 		var a1 := TAU * (i + 1) / n
@@ -216,7 +263,6 @@ func _build_accelerator() -> void:
 		var p1 := c + Vector3(cos(a1) * RING_R, RING_Y, sin(a1) * RING_R)
 		if i in gaps or i - 1 in gaps:
 			continue
-		b.cylinder(p0, p1, 0.12, 0.12, 8, steel, steel, "metal", false)
 		if i % 3 == 0:
 			var mid := (p0 + p1) * 0.5
 			b.box(mid, Vector3(0.45, 0.45, 0.45), Color(0.8, 0.45, 0.2), Basis(Vector3.UP, -a0))
@@ -231,11 +277,8 @@ func _build_accelerator() -> void:
 
 	# Ring glow for the activation sequence.
 	var gb = Assets.builder()
-	for i in n:
-		var a0 := TAU * i / n
-		var a1 := TAU * (i + 1) / n
-		gb.cylinder(c + Vector3(cos(a0) * RING_R, RING_Y, sin(a0) * RING_R), c + Vector3(cos(a1) * RING_R, RING_Y, sin(a1) * RING_R),
-			0.15, 0.15, 6, Color(0.6, 0.85, 1.0), Color(-1, 0, 0), "glow", false)
+	var loop := _ring_arc(0, n)
+	gb.tube(loop, _radii(loop, 0.15), 6, [Color(0.6, 0.85, 1.0)], "glow")
 	_ring_glow = MeshInstance3D.new()
 	_ring_glow.mesh = gb.commit(Assets.materials)
 	_ring_glow.visible = false
@@ -246,6 +289,23 @@ func _build_accelerator() -> void:
 		var pos := c + Vector3(cos(a) * RING_R, RING_Y, sin(a) * RING_R)
 		_mount("beam_%d" % gi, "beam_segment", pos, Basis(Vector3.UP, -a))
 	_mount("injector", "injector", c + Vector3(RING_R + 1.35, RING_Y + 0.15, 0), Basis(Vector3.UP, PI * 0.5))
+
+
+func _ring_arc(from_step: float, to_step: float) -> Array:
+	## Points along the beam pipe's centre line, four to a ring step.
+	var pts := []
+	var count := int(round((to_step - from_step) * 4.0))
+	for k in count + 1:
+		var a := TAU * lerpf(from_step, to_step, float(k) / count) / RING_STEPS
+		pts.append(RING_CENTER + Vector3(cos(a) * RING_R, RING_Y, sin(a) * RING_R))
+	return pts
+
+
+func _radii(pts: Array, r: float) -> Array:
+	var out := []
+	out.resize(pts.size())
+	out.fill(r)
+	return out
 
 
 func _mount(mount_name: String, needs: String, pos: Vector3, basis: Basis) -> void:
@@ -261,7 +321,11 @@ func _mount(mount_name: String, needs: String, pos: Vector3, basis: Basis) -> vo
 	m.add_child(cs)
 	var fb = Assets.builder()
 	if needs == "beam_segment":
-		fb.cylinder(Vector3(0, 0, -0.7), Vector3(0, 0, 0.7), 0.12, 0.12, 8, Color(0.72, 0.74, 0.78), Color(-1, 0, 0), "metal")
+		# Bent to the ring, filling the gap between its two flanges.
+		var mid := atan2(pos.z - RING_CENTER.z, pos.x - RING_CENTER.x) / TAU * RING_STEPS
+		var inv := basis.inverse()
+		var arc := _ring_arc(mid - 1.0, mid + 1.0).map(func(p): return inv * (p - pos))
+		fb.tube(arc, _radii(arc, 0.12), 8, [Color(0.72, 0.74, 0.78)], "metal")
 		fb.box(Vector3.ZERO, Vector3(0.45, 0.45, 0.45), Color(0.8, 0.5, 0.25))
 	else:
 		fb.box(Vector3.ZERO, Vector3(0.5, 0.6, 0.5), Color(0.35, 0.6, 0.9))
@@ -299,7 +363,18 @@ func _place_parts() -> void:
 # --- Tutorial flow -------------------------------------------------------------------
 
 const HINTS := {
-	"move": "Move the mouse to look around. Walk with W A S D (or the left stick).",
+	"ride": "",
+	"move": "Press [W] to step out of the elevator, before your ears start to bleed.",
+	"mug": "First, coffee. The coffee pot is on the counter to your left: look at the mug beside it and pick it up [E].",
+	"pour": "Hold the mug (choose its hotbar slot, keys 1-6), look at the coffee pot and pour yourself a coffee [E].",
+	"drink": "Now drink it [Right-click]. Anything you can eat or drink is used the same way.",
+	"pour2": "It's second shift, pour yourself another for good measure.",
+	"drink2": "Drink up [Right-click].",
+	"papers": "Your keycard is gone. You must have dropped it somewhere, and the lab door won't open without one. Maybe somebody else left theirs lying around? Have a look through the papers on the table: pick them up [E].",
+	"lay": "Look at the table and press C to work at it. Click the Papers in the tray to lay them on the table, then choose Read the papers.",
+	"read": "Read through the stack: click the page to turn it over.",
+	"door": "\"Wait, that's the head engineer's handwriting. I hope he didn't get mud on any of the accelerator parts, that could go badly. At least I can get into the lab now.\"\nOpen the lab door, on your right, with the keycard [E].",
+	"enter": "Go into the lab.",
 	"pickup": "Parts for the particle accelerator are scattered around the lab.\nLook at one and press E to pick it up.",
 	"collect": "Collect every part on the list (top right).",
 	"craft": "Press C to kneel and work on the floor. Click parts in the tray to lay them down (a Beam Pipe and two Magnet Coils), choose Fit the coils, then click the glowing marks. Build two Beam Segments and the Particle Injector.",
@@ -309,7 +384,10 @@ const HINTS := {
 }
 # The same steps for the on-screen touch controls.
 const TOUCH_HINTS := {
-	"move": "Drag on the right of the screen to look around. Put your thumb down on the left and slide it to walk.",
+	"pour": "Hold the mug (tap its hotbar slot), look at the coffee pot and pour yourself a coffee [E].",
+	"lay": "Look at the table and tap Craft to work at it. Tap the Papers in the tray to lay them on the table, then choose Read the papers.",
+	"read": "Read through the stack: tap the page to turn it over.",
+	"move": "Put your thumb down on the left of the screen and slide it up to step out of the elevator, before your ears start to bleed.",
 	"pickup": "Parts for the particle accelerator are scattered around the lab.\nLook at one and tap Act to pick it up.",
 	"craft": "Tap Craft to kneel and work on the floor. Tap parts in the tray to lay them down (a Beam Pipe and two Magnet Coils), choose Fit the coils, then tap the glowing marks. Build two Beam Segments and the Particle Injector.",
 	"install": "Tap Craft to stand up. Put a part in your hand by tapping its hotbar slot, then look at a glowing marker on the ring and tap Act.",
@@ -322,9 +400,33 @@ func _set_step(s: String) -> void:
 	_update_objectives()
 
 
+## The breakroom's steps, before the lab's own.
+const BREAKROOM_STEPS := ["ride", "move", "mug", "pour", "drink", "pour2", "drink2", "papers", "lay", "read", "door", "enter"]
+
+
+func intro_done() -> void:
+	## The elevator doors are open (elevator_intro.gd): you can step out.
+	_intro = null
+	_set_step("move")
+
+
 func _process(delta: float) -> void:
-	if step == "move" and player.global_position.distance_to(_start_pos) > 2.0:
-		_set_step("pickup")
+	var at := player.global_position
+	if _riding and breakroom.elevator_open and breakroom.out_of_car(at):
+		# Out of the elevator: its doors shut behind you and the music goes.
+		_riding = false
+		breakroom.close_elevator()
+		Music.elevator(false)
+		if step == "move":
+			_set_step("mug")
+	if step in ["lay", "read"]:
+		var reading: bool = work != null and work.recipe.get("read", false)
+		if step == "lay" and reading:
+			_set_step("read")
+		elif step == "read" and not reading and Game.inventory.count("keycard_jr") == 0:
+			_set_step("lay")
+	if step in BREAKROOM_STEPS and step != "ride" and breakroom.in_lab(at):
+		_enter_lab()
 	if _sequence:
 		_run_sequence(delta)
 
@@ -349,10 +451,49 @@ func _crafted_or_installed(id: String) -> int:
 	return n
 
 
+func _on_crafted(id: String) -> void:
+	match id:
+		"ate_mug_coffee":
+			coffees += 1
+		"keycard_jr":
+			close_work.call_deferred()  # stand up from the table
+	check_steps()
+
+
+func _enter_lab() -> void:
+	_set_step("pickup")
+	hud.show_message("Night shift, Lab 4.")
+	check_steps()
+
+
 func check_steps() -> void:
+	if step in ["mug", "pour", "drink", "pour2", "drink2", "papers", "lay", "read"] and Game.inventory.count("keycard_jr") > 0:
+		_set_step("door")  # found it early
 	match step:
-		"move", "pickup":
-			if Game.inventory.slots.any(func(s): return s != null):
+		"mug":
+			if Game.inventory.count("coffee_mug") + Game.inventory.count("mug_coffee") > 0:
+				_set_step("pour")
+				check_steps()
+				return
+		"pour", "pour2":
+			if Game.inventory.count("mug_coffee") > 0:
+				_set_step("drink" if step == "pour" else "drink2")
+		"drink":
+			if coffees >= 1:
+				_set_step("pour2")
+		"drink2":
+			if coffees >= 2:
+				_set_step("papers")
+				check_steps()
+				return
+		"papers":
+			if Game.inventory.count("papers") > 0 or (work != null and work.laid("papers") > 0):
+				_set_step("lay")
+		"door":
+			if breakroom.lab_door.is_open:
+				_set_step("enter")
+		"pickup":
+			if REQUIRED.keys().any(func(id): return Game.inventory.count(id) > 0):
 				_set_step("collect")
 				check_steps()
 				return
@@ -372,7 +513,13 @@ func _update_objectives() -> void:
 	if hud == null:
 		return
 	var lines := PackedStringArray()
-	if step in ["move", "pickup", "collect"]:
+	if step in BREAKROOM_STEPS and step != "ride":
+		lines.append("Before the shift:")
+		lines.append("%s Pour a coffee" % _tick(coffees >= 1))
+		lines.append("%s Pour another" % _tick(coffees >= 2))
+		lines.append("%s Find a keycard" % _tick(Game.inventory.count("keycard_jr") > 0 or breakroom.lab_door.is_open))
+		lines.append("[ ] Get into the lab")
+	elif step in ["pickup", "collect"]:
 		lines.append("Accelerator parts:")
 		for id in REQUIRED:
 			var have := mini(_have(id), REQUIRED[id])
@@ -383,6 +530,10 @@ func _update_objectives() -> void:
 		lines.append("Particle Injector  %d/1" % mini(_crafted_or_installed("injector"), 1))
 		lines.append("Installed  %d/3" % installed.size())
 	hud.set_objectives(lines)
+
+
+func _tick(done: bool) -> String:
+	return "[x]" if done else "[ ]"
 
 
 func start_sequence() -> void:

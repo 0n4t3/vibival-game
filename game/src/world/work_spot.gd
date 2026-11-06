@@ -693,7 +693,10 @@ func _finish(out := "") -> void:
 		player.world.add_guts(to_global(Vector3(0.35, 0, -0.3)), r.guts, true)
 	Sfx.play("craft", -4.0)
 	Game.crafted.emit(id)
-	Game.notify("Made %s%s." % [Items.item_name(id), " x%d" % n if n > 1 else ""])
+	if r.get("read", false):
+		Game.notify("You find %s." % Items.item_name(id))  # papers read through (papers.gd), not made
+	else:
+		Game.notify("Made %s%s." % [Items.item_name(id), " x%d" % n if n > 1 else ""])
 	_rebuild_work()
 	changed.emit()
 	finished.emit(id)
@@ -1639,6 +1642,14 @@ func _rebuild_work() -> void:
 			for i in mini(k, 6):
 				b.box(Vector3(0.17 + _rng.randf_range(0, 0.08), 0.002, _rng.randf_range(0.03, 0.09)), Vector3(0.012, 0.002, 0.006),
 						Assets.CUT_WOOD, Basis(Vector3.UP, _rng.randf() * PI), "wood")
+		"keycard_jr":
+			# The stack of papers on the left, those read turned over on the right.
+			for i in n:
+				var read := i < k
+				var y := 0.002 + (i if read else n - 1 - i) * 0.004
+				var at := Vector3(0.16 if read else -0.13, y, 0.0)
+				var turn := _rng.randf_range(-0.12, 0.12)
+				b.box(at, Vector3(0.21, 0.002, 0.28), Items.def("papers").color * _rng.randf_range(0.9, 1.0), Basis(Vector3.UP, turn), "fiber")
 		"beam_segment":
 			b.cylinder(Vector3(-0.35, 0.07, 0), Vector3(0.35, 0.07, 0), 0.06, 0.06, 8, STEEL, Color(-1, 0, 0), "metal")
 			for i in 2:
@@ -1812,6 +1823,8 @@ func _target(out: String, k: int) -> Vector3:
 			return Vector3(-0.1, 0.03, (k - 4.5) * 0.12)
 		"fiber_sack", "cloth_sack":
 			return Vector3(-0.19, 0.02, -0.16 + k * 0.045)
+		"keycard_jr":
+			return Vector3(-0.13, 0.004 * (Items.recipe_steps(recipe) - k), 0)
 		"beam_segment":
 			return Vector3(-0.15 + k * 0.3, 0.12, 0)
 		"injector":

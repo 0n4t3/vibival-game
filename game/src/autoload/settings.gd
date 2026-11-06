@@ -4,6 +4,7 @@ extends Node
 ## rebound (saved under [bindings]); touch controls feed the same actions.
 
 signal changed
+signal input_changed  # using_pad flipped: texts naming buttons should be redone
 
 const PATH := "user://settings.cfg"
 
@@ -22,7 +23,9 @@ var music_volume: float = 0.6
 var music_frequency: int = MusicFrequency.RARE
 var fullscreen: bool = false
 var render_scale: float = 1.0
-var touch := false  # on-screen touch controls (mobile, or --touch to try them)
+var touch := false  # on-screen touch controls are in use (touch_screen and touch_controls)
+var touch_screen := false  # they can be: mobile, or --touch to try them
+var touch_controls := true  # the player wants them (Settings, on a touch screen)
 var using_pad := false  # the last input came from a gamepad (for naming buttons)
 
 ## The actions the Controls screen lists, in its order, with their names
@@ -98,19 +101,33 @@ const MOUSE_NAMES := {MOUSE_BUTTON_LEFT: "left-click", MOUSE_BUTTON_RIGHT: "righ
 var bindings := {}  # action -> [keyboard/mouse, keyboard/mouse, gamepad], as in DEFAULT_BINDINGS
 
 func _ready() -> void:
-	touch = OS.has_feature("mobile") or "--touch" in OS.get_cmdline_user_args()
-	if touch and not OS.has_feature("mobile"):
-		Input.emulate_touch_from_mouse = true
+	touch_screen = OS.has_feature("mobile") or "--touch" in OS.get_cmdline_user_args()
 	_setup_input()
 	load_settings()
+	set_touch_controls(touch_controls)
 	apply()
 
 
+func set_touch_controls(on: bool) -> void:
+	## Shows or hides the on-screen controls (a phone with a gamepad or
+	## keyboard can do without them). scene_base adds or removes them.
+	touch_controls = on
+	var was := touch
+	touch = touch_screen and on
+	if not OS.has_feature("mobile"):
+		Input.emulate_touch_from_mouse = touch
+	if touch != was:
+		input_changed.emit()
+
+
 func _input(event: InputEvent) -> void:
+	var was := using_pad
 	if event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.4):
 		using_pad = true
 	elif event is InputEventKey or event is InputEventMouseButton:
 		using_pad = false
+	if using_pad != was:
+		input_changed.emit()
 
 
 func button_name(action: String) -> String:
@@ -126,14 +143,89 @@ func button_name(action: String) -> String:
 
 
 func hint(text: String) -> String:
-	## A prompt's key hints ("[E]", "[C]", "[Q]", "[Right-click]") as the
-	## buttons now bound on whatever is being used.
-	for pair in [["[E]", "interact"], ["[C]", "craft"], ["[Q]", "drop"], ["[Right-click]", "use"]]:
+	## Text for the player, its key hints ("[E]", "[C]", "[Q]", "[W]",
+	## "[Right-click]") as the buttons now bound on whatever is being used.
+	## On a gamepad the rest of the wording follows too (pad_words).
+	if text.contains("[Right-click / Q]"):
+		text = text.replace("[Right-click / Q]", "[%s / %s]" % [_cap(button_name("use")), _cap(button_name("drop"))])
+	for pair in [["[E]", "interact"], ["[C]", "craft"], ["[Q]", "drop"], ["[W]", "move_forward"], ["[Right-click]", "use"]]:
 		if text.contains(pair[0]):
 			text = text.replace(pair[0], "[%s]" % _cap(button_name(pair[1])))
 	if text.contains("Q puts it down"):
 		text = text.replace("Q puts it down", "%s puts it down" % _cap(button_name("drop")))
+	if using_pad and not touch:
+		text = pad_words(text)
 	return text
+
+
+const KEY_ACTIONS := {"E": "interact", "C": "craft", "Q": "drop", "Z": "sleep", "M": "waypoint", "Tab": "inventory"}
+static var _pad_res := {}
+
+func pad_words(text: String) -> String:
+	## Wording written for a mouse and keyboard, for a gamepad: a click is
+	## the work view's click button (jump, A) with the cursor on the right
+	## stick, a right-click is the use button, holding the mouse button down
+	## is holding interact, and keys are their actions' buttons.
+	if _pad_res.is_empty():
+		for k in ["right", "click_to", "click_on", "press", "paren", "to_do"]:
+			_pad_res[k] = RegEx.new()
+		_pad_res.right.compile("\\b([Rr])ight-click(ing|ed|s)?\\b")
+		_pad_res.click_to.compile("\\b([Cc])lick(s)?( to\\b|:| along\\b| again\\b)")
+		_pad_res.click_on.compile("\\b([Cc])lick(s)?\\b")
+		_pad_res.press.compile("\\b([Pp])ress(es)? (E|C|Q|Z|M|Tab)\\b")
+		_pad_res.paren.compile("\\((E|C|Q|Z|M|Tab)\\)")
+		_pad_res.to_do.compile("\\b(E|C|Q|Z|M|Tab) to (sleep|craft|kneel|drop|pick|open|mark)\\b")
+	var hold := button_name("interact")
+	text = text.replace("hold the left mouse button and move the mouse back and forth", "hold %s" % hold)
+	text = text.replace("Hold the left mouse button and drag to keep", "Hold %s to keep" % hold)
+	text = text.replace("Hold the left mouse button and", "Hold %s and" % hold)
+	text = text.replace("hold the left mouse button and", "hold %s and" % hold)
+	text = text.replace("(keys 1-6)", "(%s / %s)" % [button_name("slot_prev"), button_name("slot_next")])
+	text = text.replace("(1-6 or mouse wheel)", "(%s / %s)" % [button_name("slot_prev"), button_name("slot_next")])
+	text = _sub_each(_pad_res.right, text, _pad_right)
+	text = _sub_each(_pad_res.click_to, text, _pad_click_to)
+	text = _sub_each(_pad_res.click_on, text, _pad_click_on)
+	text = _sub_each(_pad_res.press, text, _pad_press)
+	text = _sub_each(_pad_res.paren, text, _pad_paren)
+	text = _sub_each(_pad_res.to_do, text, _pad_to_do)
+	return text
+
+
+func _sub_each(re: RegEx, text: String, with: Callable) -> String:
+	var out := ""
+	var at := 0
+	for m in re.search_all(text):
+		out += text.substr(at, m.get_start() - at) + with.call(m)
+		at = m.get_end()
+	return out + text.substr(at)
+
+
+func _pad_right(m: RegExMatch) -> String:
+	var use := button_name("use")
+	var said: String = {"": use, "s": use, "ing": "pressing " + use, "ed": "used (%s)" % use}[m.get_string(2)]
+	return _cap(said) if m.get_string(1) == "R" else said
+
+
+func _pad_click_to(m: RegExMatch) -> String:
+	if m.get_string(3) == ":":
+		return button_name("jump") + ":"
+	return ("Press " if m.get_string(1) == "C" else "press ") + button_name("jump") + m.get_string(3)
+
+
+func _pad_click_on(m: RegExMatch) -> String:
+	return ("Press " if m.get_string(1) == "C" else "press ") + button_name("jump") + " on"
+
+
+func _pad_press(m: RegExMatch) -> String:
+	return m.get_string(1) + "ress" + m.get_string(2) + " " + button_name(KEY_ACTIONS[m.get_string(3)])
+
+
+func _pad_paren(m: RegExMatch) -> String:
+	return "(%s)" % button_name(KEY_ACTIONS[m.get_string(1)])
+
+
+func _pad_to_do(m: RegExMatch) -> String:
+	return "%s to %s" % [_cap(button_name(KEY_ACTIONS[m.get_string(1)])), m.get_string(2)]
 
 
 func _cap(s: String) -> String:
@@ -193,6 +285,7 @@ func load_settings() -> void:
 	fullscreen = cfg.get_value("graphics", "fullscreen", fullscreen)
 	fov = cfg.get_value("controls", "fov", fov)
 	mouse_sensitivity = cfg.get_value("controls", "mouse_sensitivity", mouse_sensitivity)
+	touch_controls = bool(cfg.get_value("controls", "touch_controls", touch_controls))
 	volume = cfg.get_value("audio", "volume", volume)
 	music_volume = clampf(cfg.get_value("audio", "music_volume", music_volume), 0.0, 1.0)
 	music_frequency = clampi(cfg.get_value("audio", "music_frequency", music_frequency), 0, MusicFrequency.OFF)
@@ -211,6 +304,7 @@ func save_settings() -> void:
 	cfg.set_value("graphics", "fullscreen", fullscreen)
 	cfg.set_value("controls", "fov", fov)
 	cfg.set_value("controls", "mouse_sensitivity", mouse_sensitivity)
+	cfg.set_value("controls", "touch_controls", touch_controls)
 	cfg.set_value("audio", "volume", volume)
 	cfg.set_value("audio", "music_volume", music_volume)
 	cfg.set_value("audio", "music_frequency", music_frequency)
@@ -238,6 +332,13 @@ func apply() -> void:
 func _setup_input() -> void:
 	bindings = DEFAULT_BINDINGS.duplicate(true)
 	apply_bindings()
+	# Godot gives no pad button to accept or cancel in menus: A presses the
+	# button in focus, B backs out of a pop-up.
+	for pair in [["ui_accept", JOY_BUTTON_A], ["ui_cancel", JOY_BUTTON_B]]:
+		var ev := InputEventJoypadButton.new()
+		ev.button_index = pair[1]
+		ev.device = -1
+		InputMap.action_add_event(pair[0], ev)
 	# Menus answer every pad, whatever number it was given.
 	for action in InputMap.get_actions():
 		if String(action).begins_with("ui_"):

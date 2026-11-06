@@ -346,6 +346,52 @@ func _s_hum() -> PackedFloat32Array:
 	return b
 
 
+func _s_ding() -> PackedFloat32Array:
+	# An elevator arriving: a soft bell.
+	var b := _tone(1.6, 1318.5, 1318.5, 2.6, 0.32, 0.002)
+	b = _mix(b, _tone(1.6, 2637.0, 2637.0, 4.5, 0.1, 0.002))
+	return _mix(b, _tone(1.6, 659.3, 659.3, 2.0, 0.12, 0.004))
+
+
+func _s_doors() -> PackedFloat32Array:
+	# Elevator doors sliding apart: a low rumble and a soft thump at the end.
+	var b := _noise(1.2, 0.05, 1.2, 0.5)
+	for i in b.size():
+		b[i] *= minf(float(i) / (0.15 * RATE), 1.0)
+	return _mix(b, _noise(0.25, 0.3, 14.0, 0.35), int(0.95 * RATE))
+
+
+func _s_elevator_pass() -> PackedFloat32Array:
+	# The car rushing past in its shaft: air through a steel tube (noise rung
+	# through a comb filter whose pitch drops as it goes by), the rumble of
+	# the car, and the rails and cables clanking as it passes.
+	var n := 1.8
+	var peak := 0.55
+	var b := _buf(n)
+	var y := 0.0
+	var ring := PackedFloat32Array()
+	ring.resize(512)
+	for i in b.size():
+		var t := float(i) / RATE
+		var near := exp(-pow((t - peak) / (0.16 if t < peak else 0.4), 2.0))
+		y += lerpf(0.04, 0.5, near) * (_rng.randf_range(-1.0, 1.0) - y)
+		var d := int(lerpf(46.0, 74.0, smoothstep(peak - 0.25, peak + 0.25, t)))
+		var out := y + 0.82 * ring[(i - d) & 511]
+		ring[i & 511] = out
+		b[i] = out * near * 0.32
+	b = _mix(b, _tone(n, 70, 45, 1.4, 0.35, 0.3))
+	for k in 7:
+		var at := peak - 0.2 + k * 0.08 + _rng.randf_range(-0.02, 0.02)
+		var f := _rng.randf_range(900.0, 1500.0)
+		var clank := PackedFloat32Array()
+		for p in [1.0, 2.76, 5.4]:
+			clank = _mix(clank, _tone(0.35, f * p, f * p * 0.98, 18.0 + p * 6.0, 0.1 / p, 0.001))
+		b = _mix(b, clank, int(at * RATE))
+	for i in b.size():
+		b[i] = tanh(b[i] * 1.6) * 0.8
+	return b
+
+
 func _s_flash() -> PackedFloat32Array:
 	var b := _noise(2.5, 0.8, 1.6, 0.9)
 	b = _mix(b, _tone(2.5, 90, 30, 1.2, 0.9))

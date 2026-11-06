@@ -65,6 +65,12 @@ func _ready() -> void:
 		fs.toggled.connect(func(on): Settings.fullscreen = on)
 		_row(grid, "Fullscreen", fs)
 
+	if Settings.touch_screen:
+		var tc := CheckBox.new()
+		tc.button_pressed = Settings.touch_controls
+		tc.toggled.connect(Settings.set_touch_controls)
+		_row(grid, "Touch controls", tc)
+
 	var controls := Button.new()
 	controls.text = "Controls..."
 	controls.pressed.connect(func():

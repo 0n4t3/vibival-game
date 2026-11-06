@@ -26,10 +26,14 @@ var _blind: ColorRect     # your sight going dark at the last stage of any condi
 var _fade: ColorRect
 var _death: Control
 var _flash_a := 0.0
+var _hint_raw := ""       # the texts as written, before Settings.hint names the buttons
+var _tip_raw := ""
+var _objectives_raw := ""
 
 
 func _ready() -> void:
 	layer = 1
+	Settings.input_changed.connect(_redo_texts)
 	_canvas = Control.new()
 	_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -145,7 +149,7 @@ func bind_player(p: Node) -> void:
 
 func show_message(text: String) -> void:
 	var l := _label(16, HORIZONTAL_ALIGNMENT_LEFT)
-	l.text = text
+	l.text = Settings.hint(text)
 	_messages.add_child(l)
 	if _messages.get_child_count() > 6:
 		_messages.get_child(0).queue_free()
@@ -156,13 +160,15 @@ func show_message(text: String) -> void:
 
 
 func set_hint(text: String) -> void:
-	_hint.text = text
+	_hint_raw = text
+	_hint.text = Settings.hint(text)
 	_hint_panel.visible = text != ""
 
 
 func set_tooltip(text: String) -> void:
-	if _tip.text != text:
-		_tip.text = text
+	if _tip_raw != text:
+		_tip_raw = text
+		_tip.text = Settings.hint(text)
 		# Shrink back round the new text; it grows from the middle and upward.
 		_tip_panel.offset_left = 0
 		_tip_panel.offset_right = 0
@@ -171,7 +177,15 @@ func set_tooltip(text: String) -> void:
 
 
 func set_objectives(lines: PackedStringArray) -> void:
-	_objectives.text = "\n".join(lines)
+	_objectives_raw = "\n".join(lines)
+	_objectives.text = Settings.hint(_objectives_raw)
+
+
+func _redo_texts() -> void:
+	## Switched between gamepad and keyboard: name the other buttons.
+	set_hint(_hint_raw)
+	_tip.text = Settings.hint(_tip_raw)
+	_objectives.text = Settings.hint(_objectives_raw)
 
 
 func fade_to(color: Color, seconds: float) -> Tween:
@@ -206,7 +220,7 @@ func _process(delta: float) -> void:
 			phase = "Dusk"
 		_clock.text = "Day %d  -  %s" % [Game.day() + 1, phase]
 		if Game.can_sleep_in() <= 0.0:
-			_clock.text += "\nTired (Z to sleep)"
+			_clock.text += Settings.hint("\nTired (Z to sleep)")
 	else:
 		_clock.text = ""
 	_canvas.queue_redraw()
@@ -275,7 +289,8 @@ func _draw_hud() -> void:
 	# Caught in an amphibian's jaws
 	if player and player.grabbed_by and not player.vitals.dead and not (player.rolls_for_escape() and player.escape_roll >= 0.0):
 		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.02)
-		var key := "Left mouse / RT"
+		var key := Settings.button_name("attack")
+		key = key.left(1).to_upper() + key.substr(1)
 		_canvas.draw_string(font, Vector2(c.x - 200, c.y + 70), "STAB!  [%s]" % key, HORIZONTAL_ALIGNMENT_CENTER, 400, 30, Color(1.0, 0.3, 0.2, pulse))
 		if player.rolls_for_escape():
 			# No grip to break: the best strike you land sets your odds.

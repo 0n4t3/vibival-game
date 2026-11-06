@@ -728,12 +728,13 @@ func cast_rod() -> void:
 func consume_slot(i: int) -> void:
 	var inv = Game.inventory
 	var s = inv.slots[i]
-	if s == null or not vitals_enabled:
+	if s == null:
 		return
 	var def: Dictionary = inv.def_of(i)
 	if not Items.is_food(s.id):
 		return
-	vitals.consume(def, _rng)
+	if vitals_enabled:
+		vitals.consume(def, _rng)  # (in the lab you only drink a coffee)
 	Sfx.play("drink" if def.get("water", 0.0) > def.get("energy", 0.0) else "eat", -4.0)
 	if _use_measure(i, def):
 		pass

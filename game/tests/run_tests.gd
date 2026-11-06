@@ -22,6 +22,7 @@ const Campfire := preload("res://src/world/campfire.gd")
 const Intro := preload("res://src/world/intro.gd")
 const Fishing := preload("res://src/world/fishing.gd")
 const House := preload("res://src/world/house.gd")
+const Breakroom := preload("res://src/world/breakroom.gd")
 
 var _failures := 0
 var _checks := 0
@@ -286,7 +287,8 @@ func test_knapping() -> void:
 
 func test_music() -> void:
 	Music.stop(false)
-	check(Music.tracks.size() == 3, "found the music tracks (%d)" % Music.tracks.size())
+	check(Music.tracks.size() == 5, "found the music tracks (%d)" % Music.tracks.size())
+	check(not Music.tracks.any(func(t): return t.get_basename() == Music.ELEVATOR), "the elevator music is not in the random choice")
 	for t in Music.tracks:
 		var st: AudioStream = Music.load_track(t)
 		check(st != null and st.get_length() > 60.0, "%s loads (%.0f s)" % [t.get_file(), st.get_length() if st else 0.0])
@@ -897,11 +899,94 @@ func test_lab() -> void:
 	add_child(lab)
 	await _frames(3)
 	check(lab.player != null, "lab player exists")
+	var p: Node = lab.player
+	var br: Node = lab.breakroom
+	# The ride down: frozen in the closed elevator until the doors open.
+	check(lab.step == "ride" and p.frozen and lab._intro != null, "the tutorial opens with the elevator ride")
+	check(br.in_car(p.global_position) and not br.elevator_open, "you ride in the elevator, doors shut")
+	var intro: Node = lab._intro
+	var ride := 0.0
+	while lab._intro != null and ride < 30.0:
+		intro._process(0.25)
+		ride += 0.25
+		if ride > 6.0 and ride < 6.3:
+			check(intro._root.visible and p.frozen, "the title card shows, nothing moves yet")
+	check(ride > 12.0 and ride < 16.0, "the intro takes %.1f s" % ride)
+	br._process(2.0)
+	check(br.elevator_open and not p.frozen and lab.step == "move", "the doors open on the breakroom and you can move")
+	var keep_pad: bool = Settings.using_pad
+	Settings.using_pad = false
+	check(Settings.hint(lab.HINTS["move"]).begins_with("Press [W] to step out of the elevator"), "the hint names the walk key")
+	Settings.using_pad = true
+	check(Settings.hint(lab.HINTS["move"]).begins_with("Press [Left stick up] to step out"), "and on a gamepad, the stick")
+	Settings.using_pad = keep_pad
+	var music_on: bool = Settings.music_frequency != Settings.MusicFrequency.OFF
+	if music_on:
+		check(Music.current.begins_with(Music.ELEVATOR), "the elevator music plays in the car")
+	# A step towards the doors is still in the car: they stay open.
+	p.global_position = Vector3(5.8, 0.05, 8.2)
+	lab._process(0.02)
+	check(lab.step == "move" and br.elevator_open, "the doors stay open while you are in the doorway")
+	# Out of the elevator; the lab door won't open without a keycard.
+	p.global_position = Vector3(4.5, 0.05, 9.0)
+	lab._process(0.02)
+	check(lab.step == "mug" and not lab._riding, "stepping out asks for a coffee")
+	check(not br.elevator_open and br._doorway.collision_layer == 1, "the doors close behind you, and you can't get back in")
+	if music_on:
+		check(Music._fading and Music._fade_time == Music.ELEVATOR_OUT, "the elevator music fades out quickly")
+	br._process(2.0)
+	check(br._open_t == 0.0, "the elevator doors are shut")
+	br.lab_door.interact(p)
+	check(not br.lab_door.is_open, "the lab door stays locked without a keycard")
+	var found := func(id: String) -> Node:
+		for n in br.get_children():
+			if n.get("item_id") == id:
+				return n
+		return null
+	var mug: Node = found.call("coffee_mug")
+	check(mug != null, "a mug by the coffee pot")
+	mug.interact(p)
+	check(lab.step == "pour", "picking up the mug asks you to pour (at %s)" % lab.step)
+	var pot: Node = br.get_children().filter(func(n): return n is Breakroom.CoffeePot)[0]
+	for cup in 2:
+		Game.inventory.select(Game.inventory.find("coffee_mug"))
+		check(pot.prompt(p).begins_with("Pour"), "the pot offers to pour with the mug held")
+		pot.interact(p)
+		check(Game.inventory.count("mug_coffee") == 1 and lab.step == ("drink" if cup == 0 else "drink2"), "coffee poured (cup %d)" % (cup + 1))
+		p.consume_slot(Game.inventory.find("mug_coffee"))
+		check(Game.inventory.count("coffee_mug") == 1 and lab.coffees == cup + 1, "drunk with vitals off, the mug kept")
+	check(lab.step == "papers", "two coffees, then the papers (at %s)" % lab.step)
+	found.call("papers").interact(p)
+	check(lab.step == "lay", "papers picked up: lay them on the table")
+	var table: Node = br.get_children().filter(func(n): return n is Breakroom.Table)[0]
+	lab._start_bench_work(table)
+	var w: Node = lab.work
+	check(w != null and w.bench == table, "working at the breakroom table")
+	if w:
+		w.lay(Game.inventory.find("papers"))
+		var read: Array = w.options().filter(func(o): return o.recipe.out == "keycard_jr")
+		check(read.size() == 1 and read[0].missing.is_empty(), "the laid papers can be read through")
+		w.begin(read[0].recipe)
+		lab._process(0.02)
+		check(lab.step == "read" and lab.work_ui._papers.visible, "reading shows the top page")
+		for k in 9:
+			lab.work_ui._process(0.02)
+			check(lab.work_ui._papers.page == k, "page %d on top" % (k + 1))
+			w.step()
+		check(Game.inventory.count("keycard_jr") == 1 and Game.inventory.count("papers") == 0, "the last page turns up the keycard")
+		check(lab.step == "door", "keycard found: open the lab door")
+		await _frames(2)
+		check(lab.work == null, "you stand up from the table")
+	br.lab_door.interact(p)
+	check(br.lab_door.is_open and lab.step == "enter", "the keycard opens the lab door")
+	p.global_position = Vector3(3.5, 0.05, 4.2)
+	lab._process(0.02)
+	check(lab.step == "pickup", "into the lab: the accelerator tutorial (at %s)" % lab.step)
 	# Pick up every part on the floor.
 	var pickups := lab.get_children().filter(func(n): return n.has_method("interact") and n.get("item_id") != null)
 	check(pickups.size() == 9, "lab has 9 parts (got %d)" % pickups.size())
-	for p in pickups:
-		p.interact(lab.player)
+	for pk in pickups:
+		pk.interact(lab.player)
 	await _frames(1)
 	check(lab.step == "craft", "tutorial reaches craft step (at %s)" % lab.step)
 	for r in Items.recipes_for("lab"):
@@ -2663,6 +2748,64 @@ func test_controls() -> void:
 	cp.queue_free()
 	Settings.reset_bindings()
 	check(pad_a.is_action_pressed("jump") and Settings.bindings.drop[2] == {"button": JOY_BUTTON_B}, "reset brings the defaults back")
+
+	# Menus take a pad's A to press the button in focus, B to back out.
+	var pad_b := pad_a.duplicate()
+	pad_b.button_index = JOY_BUTTON_B
+	check(pad_a.is_action_pressed("ui_accept") and pad_b.is_action_pressed("ui_cancel"), "a pad presses menu buttons (A) and backs out (B)")
+	var btn := Button.new()
+	var hits := [0]
+	btn.pressed.connect(func(): hits[0] += 1)
+	add_child(btn)
+	btn.grab_focus()
+	Input.parse_input_event(pad_a)
+	var up := pad_a.duplicate()
+	up.pressed = false
+	Input.parse_input_event(up)
+	await _frames(2)
+	check(hits[0] == 1, "pressing A on a pad clicks the button in focus (New game, a slot)")
+	btn.queue_free()
+
+	# Text written for the mouse and keyboard names the pad's buttons.
+	Settings.using_pad = true
+	var said := {
+		"Click the joints to lash the two shafts together.": "Press A on the joints to lash the two shafts together.",
+		"Click items in the tray to lay them on the ground. Right-click lays the whole stack.":
+				"Press A on items in the tray to lay them on the ground. Left trigger lays the whole stack.",
+		"Choose what to make. Click a pile to pick one back up (right-click for all).":
+				"Choose what to make. Press A on a pile to pick one back up (left trigger for all).",
+		"Hold the left mouse button and roll the fibers back and forth.": "Hold X and roll the fibers back and forth.",
+		"Twist: hold the left mouse button and move the mouse back and forth.  40%": "Twist: hold X.  40%",
+		"From up in the house, click to fix rows of boards.": "From up in the house, press A to fix rows of boards.",
+		"\nTired (Z to sleep)": "\nTired (Back to sleep)",
+		"Put the log down first (Q).": "Put the log down first (B).",
+		"Look at one and press E to pick it up.": "Look at one and press X to pick it up.",
+		"Top row is your hotbar (keys 1-6). Craft on the ground with [C].":
+				"Top row is your hotbar (left bumper / right bumper). Craft on the ground with [D-pad down].",
+		"Set up the workbench here [Right-click / Q]": "Set up the workbench here [Left trigger / B]",
+	}
+	var wrong := []
+	for k in said:
+		if Settings.hint(k) != said[k]:
+			wrong.append(Settings.hint(k))
+	check(wrong.is_empty(), "crafting notes and tips name the pad's buttons %s" % [wrong])
+	Settings.using_pad = false
+	check(Settings.hint("Click the joints (Q).") == "Click the joints (Q).", "and the mouse keeps its words")
+
+	# The touch controls come and go with the setting.
+	var was_screen := Settings.touch_screen
+	Settings.touch_screen = true
+	Settings.set_touch_controls(true)
+	var w: Node = await _new_swamp()
+	check(Settings.touch and w._touch != null, "touch controls are on")
+	Settings.set_touch_controls(false)
+	check(not Settings.touch and w._touch == null and Settings.button_name("craft") == "C", "switched off, they go and keys are named again")
+	Settings.set_touch_controls(true)
+	check(w._touch != null and Settings.button_name("craft") == "Craft", "and back on")
+	Settings.touch_screen = was_screen
+	Settings.set_touch_controls(true)
+	w.queue_free()
+	await _frames(2)
 
 
 func _hold(id: String) -> void:

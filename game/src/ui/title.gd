@@ -136,12 +136,13 @@ func _open_new_world() -> void:
 	debug.tooltip_text = "Sleep and save at any time, fly (double-tap jump), and F1 opens a panel to set the time,\nstart weather, spawn items and creatures, and switch off damage, needs or hostile animals."
 	vb.add_child(debug)
 	var start := func(tutorial: bool): Game.new_world(name_edit.text, tutorial, debug.button_pressed)
-	_add("Start in the lab (tutorial)", start.bind(true), vb)
+	var first := _add("Start in the lab (tutorial)", start.bind(true), vb)
 	_add("Start in the swamp (skip tutorial)", start.bind(false), vb)
 	name_edit.text_submitted.connect(func(_t): start.call(true))
 	_add("Back", _close_panel, vb)
 	_show_panel(f[0])
-	name_edit.grab_focus.call_deferred()
+	# A gamepad can't type: it starts on the buttons, keeping the name given.
+	(first if Settings.using_pad else name_edit).grab_focus.call_deferred()
 
 
 # --- Load world ------------------------------------------------------------------

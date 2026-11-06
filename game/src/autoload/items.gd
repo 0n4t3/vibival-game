@@ -41,6 +41,15 @@ const ITEMS := {
 		"color": Color(0.78, 0.62, 0.45), "shape": "segment"},
 	"injector": {"name": "Particle Injector", "desc": "Feeds particles into the ring. Install it at the injector port.", "stack": 1, "w": 2.0,
 		"color": Color(0.35, 0.60, 0.90), "shape": "injector"},
+	# The breakroom before the lab (lab.gd, breakroom.gd).
+	"coffee_mug": {"name": "Coffee Mug", "desc": "A chipped breakroom mug. Hold it and look at the coffee pot to pour a coffee.", "stack": 1, "w": 0.3,
+		"color": Color(0.86, 0.84, 0.78), "shape": "mug"},
+	"mug_coffee": {"name": "Mug of Coffee", "desc": "Hot, black and a little burnt. Drink it with [Right-click].", "stack": 1, "w": 0.6,
+		"color": Color(0.86, 0.84, 0.78), "shape": "mug_full", "water": 4.0, "energy": 2.0, "empty": "coffee_mug"},
+	"papers": {"name": "Papers", "desc": "A messy stack of papers someone left on the breakroom table.", "stack": 1, "w": 0.4,
+		"color": Color(0.93, 0.92, 0.88), "shape": "papers"},
+	"keycard_jr": {"name": "Jimbob Goober Jr's Keycard", "desc": "A lab access card, crusted with dried mud. It opens the lab door.", "stack": 1, "w": 0.05,
+		"color": Color(0.25, 0.45, 0.80), "shape": "keycard"},
 
 	# --- Raw materials --------------------------------------------------------
 	"stick": {"name": "Stick", "desc": "A dry branch from a horsetail tree. Burns well.", "stack": 20, "w": 0.4,
@@ -422,7 +431,7 @@ const TIER_NAMES := {
 }
 
 ## Recipe book categories, in order.
-const CATEGORIES := ["Accelerator", "Stone tools", "Weapons", "Materials", "Fire", "Food", "Fishing", "Traps", "Containers", "Farming", "Medicine", "Gear", "Workbench", "Writing", "Blueprints"]
+const CATEGORIES := ["Accelerator", "Breakroom", "Stone tools", "Weapons", "Materials", "Fire", "Food", "Fishing", "Traps", "Containers", "Farming", "Medicine", "Gear", "Workbench", "Writing", "Blueprints"]
 ## The recipe book's own page for recipes that need a tool on a workbench's
 ## rack, shown apart from their categories once you know the tool.
 const ADVANCED := "Rack tools"
@@ -448,6 +457,9 @@ const RECIPES := [
 	{"out": "injector", "n": 1, "in": {"control_board": 1, "copper_wire": 1, "power_cell": 1}, "where": "lab", "tier": "hand",
 		"cat": "Accelerator", "act": "steps", "verb": "Wire the injector",
 		"how": "Click the glowing points to seat the cell, wire it up and plug in the board."},
+	{"out": "keycard_jr", "n": 1, "in": {"papers": 1}, "where": "lab", "tier": "bench", "steps": 9, "read": true,
+		"cat": "Breakroom", "act": "steps", "verb": "Read the papers",
+		"how": "Click the page to turn it over and read the next one."},
 
 	{"out": "flint_blade", "n": 1, "in": {"flint": 1}, "tools": {"stone": 1}, "where": "swamp", "tier": "hand",
 		"cat": "Stone tools", "act": "knap", "knap": "flint_blade", "verb": "Knap a blade",

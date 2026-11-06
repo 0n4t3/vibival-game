@@ -1194,7 +1194,9 @@ func drawn_height(x: float, z: float) -> float:
 
 func shore_spot(p: Vector3, near: float, far: float, tries := 16, dry := false) -> Vector3:
 	## A point on the bank or in the very shallows, right by open water (dry:
-	## only on the bank, out of the water), or Vector3.INF if none turned up.
+	## only on the bank, out of the water, within a few steps of its edge;
+	## the wading-deep water most of the shore needs is rarely that close to
+	## dry ground), or Vector3.INF if none turned up.
 	var low := water_level() + 0.03 if dry else -0.25
 	for attempt in tries:
 		var a := _rng.randf() * TAU
@@ -1202,7 +1204,10 @@ func shore_spot(p: Vector3, near: float, far: float, tries := 16, dry := false) 
 		var x := p.x + cos(a) * d
 		var z := p.z + sin(a) * d
 		var h: float = terrain.height(x, z)
-		if h < low or h > 0.3 or not water_point(Vector3(x, h, z), 4.0).is_finite():
+		if h < low or h > 0.3:
+			continue
+		var wet := water_point(Vector3(x, h, z), 3.0, water_level() - 0.05) if dry else water_point(Vector3(x, h, z), 4.0)
+		if not wet.is_finite():
 			continue
 		return Vector3(x, h, z)
 	return Vector3.INF

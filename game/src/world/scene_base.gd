@@ -20,6 +20,7 @@ var work_ui: Control
 var pause: Control
 var _captured := false
 var _touch: Control = null
+var _ui_layer: CanvasLayer
 var work: Node3D = null    # the spot on the ground being worked at, while crafting
 var wind := Vector3.ZERO   # m/s; high winds carry thrown things and flyers
 
@@ -41,12 +42,7 @@ func setup_common(spawn: Vector3, vitals: bool) -> void:
 	var ui_layer := CanvasLayer.new()
 	ui_layer.layer = 2
 	add_child(ui_layer)
-	if Settings.touch:
-		var touch := TouchControls.new()
-		touch.player = player
-		touch.hud = hud
-		ui_layer.add_child(touch)
-		_touch = touch
+	_ui_layer = ui_layer
 	inv_ui = InventoryUI.new()
 	inv_ui.where = where
 	inv_ui.player = player
@@ -57,8 +53,8 @@ func setup_common(spawn: Vector3, vitals: bool) -> void:
 	pause = PauseMenu.new()
 	pause.world = self
 	ui_layer.add_child(pause)
-	if _touch:
-		_touch.pause_menu = pause
+	_show_touch()
+	Settings.input_changed.connect(_show_touch)
 	pause.resumed.connect(func(): player.capture_mouse(not player.ui_open))
 
 	player.died.connect(_on_player_died)
@@ -85,6 +81,21 @@ func setup_common(spawn: Vector3, vitals: bool) -> void:
 		call_deferred("open_debug")
 	if Game.dev.has("work"):
 		_dev_work.call_deferred()
+
+
+func _show_touch() -> void:
+	## The on-screen controls, while Settings.touch (switched in Settings).
+	if Settings.touch and _touch == null:
+		var touch := TouchControls.new()
+		touch.player = player
+		touch.hud = hud
+		touch.pause_menu = pause
+		_ui_layer.add_child(touch)
+		_ui_layer.move_child(touch, 0)  # under the menus
+		_touch = touch
+	elif not Settings.touch and _touch != null:
+		_touch.queue_free()
+		_touch = null
 
 
 func _input(event: InputEvent) -> void:

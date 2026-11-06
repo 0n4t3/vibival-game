@@ -7,8 +7,11 @@ extends Control
 ## Gamepad: the look stick moves a drawn cursor (pads can't move the mouse
 ## on the web or Android), A clicks, the use trigger clicks as a right-click,
 ## X does the next step (hold it to twist), B puts the work down.
+## Reading papers through (a "read" recipe, the breakroom's) shows the page
+## on top over the work (papers.gd); a click turns it.
 
 const Icons := preload("res://src/ui/icons.gd")
+const Papers := preload("res://src/ui/papers.gd")
 const Inventory := preload("res://src/core/inventory.gd")
 
 signal leave
@@ -35,8 +38,10 @@ var _side: PanelContainer
 var _top: PanelContainer
 var _hover_how := ""
 var _done: Button
+var _tray_label: Label
 var _cursor := Vector2.ZERO  # the gamepad cursor, shown once the stick moves it
 var _cursor_mark: Control
+var _papers: Control         # the page on top, while reading papers through (a "read" recipe)
 
 
 class TraySlot extends Button:
@@ -141,13 +146,15 @@ func _ready() -> void:
 	bottom.add_child(bb)
 	var row := HBoxContainer.new()
 	bb.add_child(row)
-	var l := Label.new()
-	l.text = "Your things (tap to lay one down)" if Settings.touch else "Your things (click: lay one down, right-click: the stack)"
-	l.add_theme_font_size_override("font_size", 12)
-	l.modulate = Color(1, 1, 1, 0.6)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(l)
+	_tray_label = Label.new()
+	_tray_label.add_theme_font_size_override("font_size", 12)
+	_tray_label.modulate = Color(1, 1, 1, 0.6)
+	_tray_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_tray_label)
+	# Everything here is clicked (on a gamepad, with the cursor), so no
+	# button takes focus and eats the pad's click.
 	_done = Button.new()
+	_done.focus_mode = Control.FOCUS_NONE
 	_done.pressed.connect(func(): leave.emit())
 	row.add_child(_done)
 	var grid := GridContainer.new()
@@ -168,6 +175,11 @@ func _ready() -> void:
 		grid.add_child(s)
 		_tray.append(s)
 
+	_papers = Papers.new()
+	_papers.visible = false
+	_papers.turned.connect(_turn_page)
+	add_child(_papers)
+
 	_cursor_mark = Control.new()
 	_cursor_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cursor_mark.visible = false
@@ -178,6 +190,7 @@ func _ready() -> void:
 	add_child(_cursor_mark)
 
 	Game.inventory.changed.connect(_refresh)
+	Settings.input_changed.connect(_refresh)
 	Assets.icons_ready.connect(_redraw_tray)
 
 
@@ -197,6 +210,7 @@ func open(work: Node3D) -> void:
 	spot = work
 	spot.changed.connect(_refresh)
 	visible = true
+	get_viewport().gui_release_focus()  # the pad's click goes to the cursor
 	_drag = false
 	_hover_how = ""
 	_cursor_mark.visible = false
@@ -213,6 +227,7 @@ func close() -> void:
 		spot.player.work_view = Vector3.ZERO
 		spot.player.work_back = 0.0
 	spot = null
+	_papers.visible = false
 	visible = false
 
 
@@ -244,6 +259,11 @@ func _process(delta: float) -> void:
 	if not visible or spot == null:
 		return
 	_frame_work()
+	if _papers.visible:
+		var c := clear_rect()
+		_papers.position = c.position
+		_papers.size = c.size
+		_papers.show_page(spot.steps)
 	if Input.get_connected_joypads().is_empty():
 		return
 	# Gamepad: the look stick drives the cursor.
@@ -299,6 +319,10 @@ func _pad_click(right: bool) -> void:
 			if not right:
 				b.pressed.emit()
 			return
+	if _papers.visible:
+		if not right:
+			spot.step()  # the page turns wherever the cursor is
+		return
 	spot.click(at, right)
 
 
@@ -384,6 +408,11 @@ func _frame_work() -> void:
 	player.work_view = Vector3(clampf(view.x, -0.6, 0.6), clampf(view.y, -0.6, 0.6), view.z)
 
 
+func _turn_page() -> void:
+	if spot:
+		spot.step()
+
+
 func _set_hover(i: int) -> void:
 	_hover = i
 	_redraw_tray()
@@ -399,8 +428,16 @@ func _refresh() -> void:
 		return
 	_redraw_tray()
 	_done.text = "Done [%s]" % Settings.button_name("craft")
-	_info.text = _hover_how if _hover_how != "" and spot.recipe.is_empty() else spot.instructions()
+	if Settings.touch:
+		_tray_label.text = "Your things (tap to lay one down)"
+	elif Settings.using_pad:
+		_tray_label.text = "Your things (%s moves the cursor, %s: lay one down, %s: the stack)" \
+				% ["right stick", Settings.button_name("jump"), Settings.button_name("use")]
+	else:
+		_tray_label.text = "Your things (click: lay one down, right-click: the stack)"
+	_info.text = Settings.hint(_hover_how if _hover_how != "" and spot.recipe.is_empty() else spot.instructions())
 	_bar.visible = spot.recipe.get("act", "") == "twist"
+	_papers.visible = spot.recipe.get("read", false)
 	_bar.value = spot.progress
 	for c in _make.get_children():
 		_make.remove_child(c)
@@ -410,13 +447,14 @@ func _refresh() -> void:
 		var r: Dictionary = spot.recipe
 		_make_title.text = r.verb if r.has("butcher") or r.has("wood") or r.has("house") or r.has("trap") or r.has("plot") else "Making %s" % Items.item_name(r.out)
 		var how := Label.new()
-		how.text = r.how
+		how.text = Settings.hint(r.how)
 		how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		how.custom_minimum_size = Vector2(260, 0)
 		how.add_theme_font_size_override("font_size", 13)
 		_make.add_child(how)
 		var stop := Button.new()
 		stop.text = "Stop"
+		stop.focus_mode = Control.FOCUS_NONE
 		stop.pressed.connect(spot.cancel)
 		_make.add_child(stop)
 		_fit_make.call_deferred()
@@ -428,7 +466,8 @@ func _refresh() -> void:
 	_make_title.text = "Make" if not opts.is_empty() else "Lay out materials"
 	if opts.is_empty():
 		var l := Label.new()
-		l.text = "Lay things down to see what you could make with them. The recipe book (%s, Recipes) lists everything." % ("Bag" if Settings.touch else "Tab")
+		var bag := Settings.button_name("inventory")
+		l.text = "Lay things down to see what you could make with them. The recipe book (%s, Recipes) lists everything." % (bag.left(1).to_upper() + bag.substr(1))
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.custom_minimum_size = Vector2(260, 0)
 		l.add_theme_font_size_override("font_size", 13)
@@ -438,6 +477,7 @@ func _refresh() -> void:
 		var r: Dictionary = o.recipe
 		var b := Button.new()
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.focus_mode = Control.FOCUS_NONE
 		var out: String = r.get("label", Items.item_name(r.out) + (" x%d" % r.n if r.n > 1 else ""))
 		b.text = "%s\n    %s" % [r.verb, out] if o.missing.is_empty() else "%s\n    needs %s" % [r.verb, ", ".join(o.missing)]
 		b.disabled = not o.missing.is_empty()
@@ -473,7 +513,7 @@ func _ranked(opts: Array) -> Array:
 func _show_how(how: String) -> void:
 	_hover_how = how
 	if spot and spot.recipe.is_empty():
-		_info.text = how if how != "" else spot.instructions()
+		_info.text = Settings.hint(how if how != "" else spot.instructions())
 
 
 func _fit_make() -> void:

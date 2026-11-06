@@ -196,6 +196,7 @@ func _ready() -> void:
 	sbtns.add_child(_pickup_btn)
 
 	Game.inventory.changed.connect(_refresh)
+	Settings.input_changed.connect(_input_changed)
 	Assets.icons_ready.connect(_refresh)
 
 
@@ -260,19 +261,29 @@ func open(with_stash: Node = null, page := "inventory") -> void:
 	_stash_panel.visible = stash != null
 	if stash:
 		(_stash_panel.get_child(0).get_child(0) as Label).text = Items.item_name(stash.sack_id)
-	if Settings.touch:
-		_hint.text = "Tap an item, then a slot on the other side to move it." if stash \
-				else "Top row is your hotbar. Tap an item to eat, drink or treat wounds with it. Craft on the ground with Craft."
-	else:
-		_hint.text = "Click an item, then a slot on the other side to move it. Right-click moves a whole stack across." if stash \
-				else "Top row is your hotbar (keys 1-6). Right-click to eat, drink or treat wounds. Craft on the ground with C."
 	visible = true
+	_set_hint()
 	_sel = -1
 	_hover = -1
 	show_page(page if stash == null else "inventory")
 	if vessel == null and page == "vessel":
 		show_page("inventory")
 	_slots[Game.inventory.selected].grab_focus()
+
+
+func _set_hint() -> void:
+	if Settings.touch:
+		_hint.text = "Tap an item, then a slot on the other side to move it." if stash \
+				else "Top row is your hotbar. Tap an item to eat, drink or treat wounds with it. Craft on the ground with Craft."
+	else:
+		_hint.text = Settings.hint("Click an item, then a slot on the other side to move it. Right-click moves a whole stack across." if stash \
+				else "Top row is your hotbar (keys 1-6). Right-click to eat, drink or treat wounds. Craft on the ground with [C].")
+
+
+func _input_changed() -> void:
+	if visible:
+		_set_hint()
+		_refresh()
 
 
 func show_page(page: String) -> void:
@@ -323,11 +334,17 @@ func _on_slot(i: int, store := false) -> void:
 
 func _on_slot_input(ev: InputEvent, i: int, store := false) -> void:
 	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_RIGHT:
-		if stash:
-			_move_across(_inv(store), i, _inv(not store))
-		else:
-			_consume(i)
+		_slot_use(i, store)
 		accept_event()
+
+
+func _slot_use(i: int, store: bool) -> void:
+	## A right-click on a slot: beside a stash, the stack goes across;
+	## otherwise eat, drink or treat with it.
+	if stash:
+		_move_across(_inv(store), i, _inv(not store))
+	else:
+		_consume(i)
 
 
 func _focus_slot() -> int:
@@ -528,9 +545,9 @@ func _refresh_info() -> void:
 		stats.append("Risky to eat")
 	if not stats.is_empty():
 		lines.append("  ".join(stats))
-	_desc.text = "\n".join(lines)
+	_desc.text = Settings.hint("\n".join(lines))
 	var mine := _focus_slot() >= 0
-	_use_btn.disabled = not mine or not Items.is_food(s.id) or not player.vitals_enabled
+	_use_btn.disabled = not mine or not Items.is_food(s.id)
 	_treat_btn.disabled = not mine or not def.has("treat") or not player.vitals_enabled
 	_drop_btn.disabled = not mine
 	_discard_btn.disabled = not mine
@@ -562,12 +579,19 @@ func _refresh_condition() -> void:
 
 
 func _process(delta: float) -> void:
+	# The gamepad's use button on a slot does what a right-click does.
+	if visible and _inv_page.visible and Settings.using_pad and Input.is_action_just_pressed("use"):
+		var f := get_viewport().gui_get_focus_owner()
+		if f in _slots:
+			_slot_use(_slots.find(f), false)
+		elif f in _stash_slots:
+			_slot_use(_stash_slots.find(f), true)
 	# Keep the rest section current while the menu is open (time keeps passing).
 	if visible and _rest.visible and Engine.get_process_frames() % 30 == 0:
 		_refresh_rest()
 	# Not while a button is held down, so a rebuild can't swallow the click.
 	if visible and _health_page.visible and Engine.get_process_frames() % 30 == 0 \
-			and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not Input.is_action_pressed("ui_accept"):
 		_refresh_health()
 	if visible and _vessel_page.visible and Engine.get_process_frames() % 30 == 0 \
 			and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
@@ -1122,7 +1146,7 @@ func _book_entry(r: Dictionary) -> Control:
 		lines.append("Sharpening wears the %s: %d use%s off it" % [Items.item_name(r.wear).to_lower(), r.sharpen.size(), "" if r.sharpen.size() == 1 else "s"])
 	if r.has("rack"):
 		lines.append("On the workbench rack: " + Items.item_name(r.rack) + (" (or in your bag)" if r.get("rack_or_bag", false) else ""))
-	lines.append("%s: %s" % [r.verb, r.how])
+	lines.append("%s: %s" % [r.verb, Settings.hint(r.how)])
 	var body := Label.new()
 	body.text = "\n".join(lines)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

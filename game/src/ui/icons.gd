@@ -215,6 +215,20 @@ static func draw_item(ci: CanvasItem, r: Rect2, id: String) -> void:
 			ci.draw_colored_polygon(PackedVector2Array([o + Vector2(-s, -s * 0.1), o + Vector2(s, -s * 0.1),
 				o + Vector2(s * 0.6, s * flat), o + Vector2(-s * 0.6, s * flat)]), c)
 			ci.draw_line(o + Vector2(-s, -s * 0.1), o + Vector2(s, -s * 0.1), c.lightened(0.25), s * 0.12)
+		"mug", "mug_full":
+			ci.draw_rect(Rect2(o - Vector2(s * 0.55, s * 0.6), Vector2(s * 1.1, s * 1.3)), c)
+			ci.draw_arc(o + Vector2(s * 0.6, s * 0.05), s * 0.3, -PI * 0.5, PI * 0.5, 8, c, s * 0.15)
+			ci.draw_rect(Rect2(o - Vector2(s * 0.55, s * 0.6), Vector2(s * 1.1, s * 0.15)), Color(0.18, 0.1, 0.05) if def.shape == "mug_full" else c.darkened(0.3))
+		"papers":
+			for i in 3:
+				var d := Vector2(i - 1, -i + 1) * s * 0.12
+				ci.draw_rect(Rect2(o - Vector2(s * 0.6, s * 0.8) + d, Vector2(s * 1.2, s * 1.6)), c.darkened(0.1 * (2 - i)))
+			for i in 4:
+				ci.draw_line(o + Vector2(-s * 0.35, -s * 0.3 + i * s * 0.25), o + Vector2(s * 0.45, -s * 0.3 + i * s * 0.25), c.darkened(0.45), 1.0)
+		"keycard":
+			ci.draw_rect(Rect2(o - Vector2(s * 0.9, s * 0.55), Vector2(s * 1.8, s * 1.1)), c)
+			ci.draw_rect(Rect2(o - Vector2(s * 0.9, s * 0.35), Vector2(s * 1.8, s * 0.2)), Color(0.92, 0.92, 0.9))
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.7, 0), Vector2(s * 0.45, s * 0.45)), Color(0.85, 0.7, 0.55))
 		"pipe":
 			ci.draw_rect(Rect2(o + Vector2(-s, -s * 0.25), Vector2(s * 2, s * 0.5)), c)
 			ci.draw_rect(Rect2(o + Vector2(-s, -s * 0.25), Vector2(s * 2, s * 0.12)), c.lightened(0.3))

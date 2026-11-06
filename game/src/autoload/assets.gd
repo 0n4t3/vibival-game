@@ -1205,6 +1205,17 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 			bowl(b, col, Vector3(0.2, 0, 0), 0.9)
 		"workbench":
 			workbench(b, rng)
+		"mug", "mug_full":
+			coffee_mug(b, col, shape == "mug_full")
+		"papers":
+			for i in 6:
+				b.box(Vector3(rng.randf_range(-0.01, 0.01), 0.002 + i * 0.004, rng.randf_range(-0.01, 0.01)), Vector3(0.21, 0.002, 0.28),
+						col * rng.randf_range(0.9, 1.0), Basis(Vector3.UP, rng.randf_range(-0.15, 0.15)), "fiber")
+		"keycard":
+			b.box(Vector3(0, 0.002, 0), Vector3(0.086, 0.003, 0.054), col)
+			b.box(Vector3(0, 0.004, -0.012), Vector3(0.086, 0.001, 0.01), Color(0.92, 0.92, 0.9))
+			b.box(Vector3(-0.025, 0.004, 0.01), Vector3(0.022, 0.001, 0.026), Color(0.85, 0.7, 0.55))
+			b.blob(Vector3(0.02, 0.005, 0.012), Vector3(0.022, 0.002, 0.014), 1, 5, Color(0.36, 0.28, 0.18), rng, 0.3, "organic")
 		"pipe":
 			b.cylinder(Vector3(-0.5, 0.08, 0), Vector3(0.5, 0.08, 0), 0.07, 0.07, 8, Color(0.75, 0.77, 0.80), Color(-1, 0, 0), "metal")
 		"coil":
@@ -1226,6 +1237,15 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 
 
 # --- Shared item parts (also used by the crafting work spot) -------------------
+
+func coffee_mug(b, col: Color, full := false, at := Vector3.ZERO) -> void:
+	## A breakroom mug, its handle out to the side; `full` of black coffee.
+	b.lathe([Vector2(0.0, 0.0), Vector2(0.044, 0.0), Vector2(0.042, 0.1), Vector2(0.036, 0.1), Vector2(0.034, 0.012), Vector2(0.0, 0.012)], 12, col, "solid", at)
+	b.tube([at + Vector3(0.04, 0.08, 0), at + Vector3(0.075, 0.075, 0), at + Vector3(0.078, 0.04, 0), at + Vector3(0.042, 0.025, 0)],
+			[0.008, 0.008, 0.008, 0.008], 5, [col])
+	if full:
+		b.lathe([Vector2(0.036, 0.085), Vector2(0.0, 0.085)], 12, Color(0.18, 0.1, 0.05), "solid", at, false)
+
 
 func gut_coil(b, rng: RandomNumberGenerator, at: Vector3, col: Color) -> void:
 	## A loose heap of looped intestine.

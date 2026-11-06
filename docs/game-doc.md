@@ -54,7 +54,9 @@ Paths are relative to `game/` unless they start with `tools/` or `docs/`.
 | `src/creatures/creature.gd` | All animals: species table, builders, behaviours, butchering |
 | `src/world/scene_base.gd` | Shared scene setup: player, HUD, inventory UI, pause, death, `spawn_pickup` |
 | `src/world/swamp.gd` | The swamp scene: chunks, sky, weather, spawning, sleep, saving, hints, torches |
-| `src/world/lab.gd` | The tutorial lab |
+| `src/world/lab.gd` | The tutorial: breakroom steps, then the lab |
+| `src/world/breakroom.gd` | The breakroom and elevator car: coffee pot, table, keycard door |
+| `src/world/elevator_intro.gd` | The tutorial opening: ground slice, title, elevator ride |
 | `src/world/terrain.gd` | Deterministic height and rockiness |
 | `src/world/chunk.gd` | One 32 m chunk: ground, trees, decor, generated pickups and harvestables |
 | `src/world/harvestable.gd` | Plants, logs and clay banks you harvest with E |
@@ -77,6 +79,7 @@ Paths are relative to `game/` unless they start with `tools/` or `docs/`.
 | `src/ui/hud.gd` | Bars, effects, hotbar, prompts, messages, waypoint marker |
 | `src/ui/inventory_ui.gd` | The Tab menu: Inventory, Health and Recipes tabs, stash view, rest |
 | `src/ui/work_ui.gd` | Overlay while crafting on the ground |
+| `src/ui/papers.gd` | The breakroom papers, drawn page by page while reading them |
 | `src/ui/icons.gd` | Inventory icons rendered from the item meshes |
 | `src/ui/title.gd`, `pause_menu.gd`, `settings_panel.gd` | Menus |
 | `src/ui/controls_panel.gd` | Rebinding keys, mouse buttons and the gamepad |
@@ -85,6 +88,43 @@ Paths are relative to `game/` unless they start with `tools/` or `docs/`.
 | `tests/run_tests.gd` | The headless gameplay suite |
 | `tests/view_trees.gd` | Dev tool: renders each tree (or with `--parts` its stump and felled ends) to `.dev-out` |
 | `tools/dev-run.sh`, `test.sh`, `pack.py`, `build-flatpak.sh` | Running, testing, packing and building |
+
+## The tutorial (`lab.gd`, `breakroom.gd`, `elevator_intro.gd`)
+
+The lab scene starts with the player in the elevator car (`Breakroom.CAR`,
+facing west), east of the breakroom; the lab is north of the breakroom,
+through `LabDoor` at x 3.5. `ElevatorIntro` (a CanvasLayer, layer 20) runs
+on a 14 s timeline: black, a fade in on a cut through the ground with the
+shaft (3D, in a SubViewport with its own world: strata, stones, roots,
+fossils, a crashed flying saucer, a crocodile skeleton, a lined shaft with rails and a ladder; the camera only ever sees
+the ground, never the surface), the car dropping past with its light and a
+see-through trail, `Sfx` "elevator_pass" (air rung through a comb filter,
+rumble, rail clanks), the title and tagline, a fade to black, then first
+person in the car (`Music.elevator(true)` fades in the looping elevator
+track over `ELEVATOR_IN`, a little shake) until
+`OPEN_AT`, when `breakroom.open_elevator()` slides the doors, and
+`DONE_AT`, when it calls `lab.intro_done()`. The hum is `Sfx` "hum" with
+pitch and volume curves. Dev `--start=lab` skips it unless `--intro`.
+No skipping.
+
+`lab.step` goes ride → move → mug → pour → drink → pour2 → drink2 → papers
+→ lay → read → door → enter → pickup (the lab's own steps follow). The
+coffee pot (`CoffeePot`) turns a held `coffee_mug` into `mug_coffee` and
+emits `Game.crafted("poured_coffee")`; drinking it (consume works with
+vitals off, which the lab has) emits "ate_mug_coffee", counted in
+`lab.coffees`. The table (`Table`) is in group "workbenches" and starts
+bench work. The papers recipe (`keycard_jr`, 9 `steps`, `read`) shows
+`work_ui._papers` over the work view; a click on the page calls
+`spot.step()`, and the top page is `spot.steps`. Finishing it closes the
+work. `LabDoor` opens only with `keycard_jr` carried. Walking through it
+(`in_lab`) moves to "pickup". A keycard found early skips to "door".
+The "move" hint is the only walking lesson: "Press [W] to step out of the
+elevator..." (`Settings.hint` names `move_forward`'s binding for "[W]").
+Once you are clear of the doorway (`breakroom.out_of_car`, x < `EAST` -
+0.6) with the doors open, `breakroom.close_elevator()` shuts them (and a
+blocker across the doorway at once, so you can't be shut in),
+`Music.elevator(false)` fades the track out over `ELEVATOR_OUT` (0.8 s),
+and the step goes to "mug".
 
 ## Time
 
@@ -1408,6 +1448,19 @@ that aren't already after the player. The stone becomes a pickup that is not sav
   the look tooltip panel (`player.tooltip`, from the focus's `tooltip()`),
   messages, the sleep confirmation line, the waypoint marker. The swamp has
   no pop-up tips; instructions are only shown while crafting and in the lab.
+  Messages, the hint line, the tooltip, the lab's objectives and the "Tired"
+  line all go through `Settings.hint`, and the hint, tooltip and objectives
+  are redone on `Settings.input_changed` (sent when `using_pad` flips).
+- **Gamepad wording** (`Settings.pad_words`, from `hint` while `using_pad`
+  and not touch): text written for the mouse and keyboard names the pad's
+  bound buttons. A click becomes jump's button with "press ... on" (the work
+  view clicks at the pad cursor with it), "click to"/"click:" keep their
+  shape, right-click (-ing, -ed) becomes use's button, holding the left
+  mouse button becomes holding interact (which twists), "press E", "(Q)",
+  "Z to sleep" and the like name their actions' buttons (`KEY_ACTIONS`),
+  "(keys 1-6)" the bumpers, and "[W]" walking forward. The work
+  view's instructions and how-texts, the tray line, the inventory's hint,
+  item descriptions and the recipe book use it too.
 - **Tab menu** (`inventory_ui.gd`), three tabs:
   - *Inventory*: the grid, item info, Eat/Drink, Treat wound, **Drop** (kept)
     and **Discard** (gone on reload), a short condition line, and Rest
@@ -1416,9 +1469,13 @@ that aren't already after the player. The stone becomes a pickup that is not sav
     about each problem, and a card per wound with Apply pressure, Wash,
     Alcohol, Bandage and Seal with wax, plus Wash all dirty wounds (see
     [Telling the player](#telling-the-player)).
-    It refreshes twice a second, but not while the mouse button is down.
+    It refreshes twice a second, but not while the mouse button or a pad's
+    A is down.
   - *Recipes*: the read-only recipe book by category and tier.
   - Opened on a stash, only the inventory tab is available.
+  - On a pad, A (Godot's `ui_accept`) presses the slot in focus (pick, then
+    place) and use (LT) on a slot does what a right-click does
+    (`_slot_use`: eat, drink or treat, or move the stack across a stash).
 - **Work UI** (`work_ui.gd`): the Make list (`_side`), instructions
   (`_top`), the twist progress bar and the inventory tray. Recipe buttons have
   no tooltips: pointing at one shows its how-text in the instructions
@@ -1436,7 +1493,9 @@ that aren't already after the player. The stone becomes a pickup that is not sav
   the real mouse moves. `_pad_click`: jump (A) clicks at it (a tray slot lays
   one, a Done, Stop or recipe button presses, anything else is
   `spot.click`), and use from a pad (LT) right-clicks (a tray slot lays the
-  stack). `_pad_hover` lights tray slots and shows a recipe's how-text.
+  stack). `_pad_hover` lights tray slots and shows a recipe's how-text. No
+  button here takes focus (and `open` drops any focus), so A always reaches
+  `_pad_click` rather than pressing a focused button.
 - **Controls** (`controls_panel.gd`, from Settings → Controls...): a row per
   `Settings.BINDABLE` action with two keyboard/mouse slots and a gamepad
   slot. Picking one waits `WAIT_TIME` (6 s) and swallows every key, mouse
@@ -1454,15 +1513,23 @@ that aren't already after the player. The stone becomes a pickup that is not sav
   back key are always on pause. On Android a trigger-axis binding also adds
   joy buttons 15/16 (Godot's Android L2/R2). `set_binding()` takes the
   binding off any other action and returns it. The built-in `ui_*` pad
-  events are switched to `device = -1` too. Godot's controller database maps
+  events are switched to `device = -1` too, and since Godot gives `ui_accept`
+  and `ui_cancel` no pad button, A and B are added to them: menus,
+  the title screen and the inventory answer the pad. The title's New world
+  panel starts the pad on its first button (it can't type a name). Godot's controller database maps
   the browser's "standard" pads to its own layout; Android buttons come
   pre-mapped, but its axes are numbered by sorting the device's axes, so
   sticks and triggers can differ from pad to pad (fix: rebind).
   `button_name(action)` reads the bindings (pad slot first when `using_pad`;
   touch has `TOUCH_NAMES`).
 - **Touch controls** (`touch_controls.gd`): made by `scene_base` when
-  `Settings.touch` is set (any `mobile` build, or `--touch`, which also turns
-  mouse clicks into touches). Thumb down on the left 40% of the screen is a
+  `Settings.touch` is set: `touch_screen` (any `mobile` build, or `--touch`,
+  which also turns mouse clicks into touches) and `touch_controls`, the
+  Settings checkbox shown on a touch screen (saved as
+  `controls/touch_controls`). `set_touch_controls` sends `input_changed`, and
+  `scene_base._show_touch` adds or frees the overlay there and then, so a
+  phone with a pad or keyboard can do without it; key names and wording
+  follow. Thumb down on the left 40% of the screen is a
   floating stick (`Input.action_press` on the move actions, with strength);
   a drag anywhere else calls `player._look`. Buttons send `InputEventAction`s
   for the same actions as the keys, so nothing else needs to know about touch.
@@ -1489,7 +1556,9 @@ nothing. Music has its own bus and volume, `GAIN_DB` (+3 dB) above the
 slider.
 
 `Music.enter(scene, fresh)` is called by `Game.goto`. It stops the track, then:
-the lab has no music; the title waits `TITLE_WAIT` (30 s); a new world's
+the lab has no music (but `Music.elevator(on)` plays
+`music/elevator.mp3`, looping, from when you are in the car until you
+step out; `find_tracks` skips it); the title waits `TITLE_WAIT` (30 s); a new world's
 swamp (not Constant) queues `OPENING` ("Empty Basin") after `OPENING_WAIT`
 (30 s); anything else waits a quarter of a normal gap.
 

@@ -27,7 +27,8 @@ extends Node
 ## --house-stand=inside|porch|under|far|side (where you stand to it; with
 ## --soup-pot, the pot hangs over the finished house's fireplace),
 ## --icons=PATH (save the rendered icon atlas there),
-## --intro (play the arrival, intro.gd, which --start=swamp and --start=lab otherwise skip),
+## --intro (play the arrival, intro.gd, which --start=swamp otherwise skips; with
+## --start=lab, the elevator opening, elevator_intro.gd),
 ## --music (start a music track at once), --weather=fog|aurora|bright_moon|meteors|
 ## thunderstorm|wind|smoke (start that event, already at full strength),
 ## --only=group,... (tests: run only those groups), --load-worlds (the title
