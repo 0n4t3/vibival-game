@@ -47,6 +47,7 @@ var line_len := 0.0          # the most line out: reeling shortens it, a fish le
 var fish: Node3D = null
 var bait := ""               # still on the hook ("" once taken)
 var slot := -1               # the hotbar slot of the rod it was cast from
+var rod := "fishing_rod"     # the rod it was cast from (a copper-hook one keeps its bait)
 var _bite_t := BITE_EVERY
 var _pred_t := PREDATOR_EVERY
 var _wobble := 0.0
@@ -67,6 +68,8 @@ func setup(p: Node3D, w: Node, from: Vector3, velocity: Vector3, with_bait: Stri
 	vel = velocity
 	bait = with_bait
 	slot = Game.inventory.selected
+	if Items.def(Game.inventory.held_id()).get("fishing", false):
+		rod = Game.inventory.held_id()
 	top_level = true
 	_rng.randomize()
 	return self
@@ -136,7 +139,7 @@ func _process(delta: float) -> void:
 
 func _rod_in_hand() -> bool:
 	return is_instance_valid(player) and player.fishing == self and not player.vitals.dead \
-			and Game.inventory.selected == slot and Game.inventory.held_id() == "fishing_rod"  # not another rod
+			and Game.inventory.selected == slot and Game.inventory.held_id() == rod  # not another rod
 
 
 # --- The cast -----------------------------------------------------------------------
@@ -216,14 +219,22 @@ func _flat_to_player(p: Vector3) -> Vector3:
 
 # --- Bites -------------------------------------------------------------------------
 
+func copper_hook() -> bool:
+	## A barbed copper hook holds the bait fast (metals.md): no fish steals it,
+	## and an amphibian tearing a hooked fish off leaves it on.
+	return Items.def(rod).get("copper_hook", false)
+
+
 func bite() -> void:
 	## Something takes the bait. Now and then that is all it does; otherwise
-	## a fish is on.
-	_take_bait()
+	## a fish is on. On a copper hook every bite is a fish, and the bait stays
+	## on until one is landed or fights free.
+	if not copper_hook():
+		_take_bait()
 	player.rod_tug = 1.0
 	var sp := next_fish
 	next_fish = ""
-	if sp == "" and _rng.randf() < NIBBLE_CHANCE:
+	if sp == "" and not copper_hook() and _rng.randf() < NIBBLE_CHANCE:
 		Game.notify("Something takes the bait and is gone. Reel in and bait the hook again.")
 		return
 	if sp == "" or not Creature.SPECIES.has(sp):
@@ -261,8 +272,8 @@ func _take_bait() -> void:
 	bait = ""
 	var inv = Game.inventory
 	var s = inv.held()
-	if s != null and s.id == "fishing_rod":
-		inv.replace(inv.selected, "fishing_rod", s.age)
+	if s != null and s.id == rod:
+		inv.replace(inv.selected, rod, s.age)
 
 
 # --- Reeling in --------------------------------------------------------------------
@@ -307,11 +318,15 @@ func _fight(delta: float) -> void:
 			_slack_t += delta
 			player.rod_tug = 1.0
 			if _slack_t >= ESCAPE_TIME:
+				if copper_hook():
+					_take_bait()
 				_got_away()
 				return
 		else:
 			_slack_t = 0.0
 	else:
+		if state != "landed" and copper_hook():
+			_take_bait()  # the fish has it in its mouth
 		state = "landed"
 	# The line is never longer than line_len: reeling, or walking off, drags it.
 	var flat := _flat_to_player(f)
@@ -372,7 +387,7 @@ func taken_by(c: Node3D) -> void:
 		ThrownRock.ripple(world, f)
 	Sfx.play_at(c.def.get("sound", "hiss"), f, 2.0, 0.1)
 	player.rod_tug = 1.0
-	Game.notify("A %s snatches your %s off the line!" % [c.def.name, fish.def.name])
+	Game.notify("A %s snatches your %s off the line!%s" % [c.def.name, fish.def.name, " The bait stays on the copper hook." if copper_hook() else ""])
 	fish.queue_free()
 	fish = null
 	end()

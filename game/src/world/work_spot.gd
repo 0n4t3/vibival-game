@@ -70,6 +70,8 @@ var house: Node3D = null       # a house site being built
 var house_log: Node3D = null   # the log carried there for its next stilt (hidden meanwhile)
 var trap: Node3D = null        # a fish trap or snare being baited
 var plot: Node3D = null        # a dug hole something is being planted in
+var station: Node3D = null     # a furnace, anvil or meteorite knelt at (metals.md)
+var station_kind := ""         # "furnace", "anvil", "meteorite", or "water" (looking at the water)
 
 var _piles: Array = []         # pile nodes
 var _work: MeshInstance3D
@@ -82,6 +84,7 @@ var _roll_shown := 0.0
 var _thump := 0.0              # animation after each step
 var _t := 0.0
 var _marker_size := 1.0
+var _cold_step := false        # the last blow left the furnace short of melting heat
 
 
 static func piles_layout() -> Array:
@@ -290,6 +293,7 @@ func options() -> Array:
 	if not b.is_empty():
 		out.append(b)
 	out.append_array(wood_options())
+	out.append_array(station_options())
 	for r in Items.recipes_for(where, ["hand", "bench"] if bench else [tier]):
 		if bench and r.has("build"):
 			continue
@@ -303,16 +307,53 @@ func options() -> Array:
 	return out
 
 
+func station_options() -> Array:
+	## What can be made at the furnace, anvil or meteorite knelt at (recipes
+	## `at` it), and at an anvil with a whetstone, sharpening each blunt or worn
+	## metal tool you carry.
+	var out := []
+	if station_kind == "" or station_kind == "water":
+		return out
+	if station == null or not is_instance_valid(station) or station.is_queued_for_deletion():
+		return out
+	for r in Items.recipes_for(where, ["metal"]):
+		if r.get("at", "") == station_kind and (r.in.is_empty() or r.in.keys().any(func(id): return laid(id) > 0)):
+			out.append({"recipe": r, "missing": missing_for(r)})
+	if station_kind == "anvil":
+		var seen := {}
+		for i in Game.inventory.SIZE:
+			var sl = Game.inventory.slots[i]
+			if sl == null or seen.has(sl.id):
+				continue
+			var edge := int(Items.def(sl.id).get("edge", 0))
+			if edge <= 0 or Game.inventory.edge_left(i) >= edge:
+				continue
+			seen[sl.id] = true
+			var r := {"sharpen_tool": sl.id, "out": sl.id, "n": 1, "in": {}, "at": "anvil", "whetstone": true, "act": "steps", "steps": 5, "cat": "Metal",
+					"verb": "Sharpen the %s" % Items.item_name(sl.id).to_lower(),
+					"label": "Its edge made good again (%s)" % ("blunt now" if Game.inventory.blunt(i) else "%d of %d uses left" % [Game.inventory.edge_left(i), edge]),
+					"how": "Click to draw the edge along the wet whetstone, again and again, then hone it fine."}
+			out.append({"recipe": r, "missing": missing_for(r)})
+	return out
+
+
+func _station_ok() -> bool:
+	return station != null and is_instance_valid(station) and not station.is_queued_for_deletion() \
+			and station.get("hauled_by") == null
+
+
 func bait_options(r: Dictionary) -> Array:
 	## Baiting a laid-out (unbaited) fishing rod: one option per kind of bait
 	## laid beside it, or one saying bait is missing. Nothing without a rod.
-	if laid("fishing_rod") == 0:
+	var rod := "fishing_rod_copper" if laid("fishing_rod_copper") > 0 else "fishing_rod"
+	if laid(rod) == 0:
 		return []
 	var out := []
 	for pile in piles:
 		if "bait" in Items.def(pile.id).get("tags", []) and not out.any(func(o): return o.recipe.bait == pile.id):
 			var b: Dictionary = r.duplicate()
-			b.in = {"fishing_rod": 1, pile.id: 1}
+			b.in = {rod: 1, pile.id: 1}
+			b.rod = rod
 			b.bait = pile.id
 			b.verb = "Bait the rod with %s" % Items.item_name(pile.id).to_lower()
 			out.append({"recipe": b, "missing": []})
@@ -434,7 +475,25 @@ func missing_for(r: Dictionary) -> Array:
 		if laid(id) + Game.inventory.count(id) < r.tools[id]:
 			missing.append("a %s to work with" % Items.item_name(id))
 	if r.has("tool_tag") and laid_tag(r.tool_tag) == "" and not Game.inventory.has_tag(r.tool_tag):
-		missing.append("a %s to work with" % Items.TAG_TOOLS.get(r.tool_tag, r.tool_tag))
+		missing.append(r.get("tool_why", "a %s to work with" % Items.TAG_TOOLS.get(r.tool_tag, r.tool_tag)))
+	var tags_missing := false
+	for tag in r.get("tool_tags", []):
+		if laid_tag(tag) == "" and not Game.inventory.has_tag(tag):
+			tags_missing = true
+			if not r.has("tool_why"):
+				missing.append("a %s to work with" % Items.TAG_TOOLS.get(tag, tag))
+	if tags_missing and r.has("tool_why"):
+		missing.append(r.tool_why)
+	if r.has("at"):
+		if station_kind != r.at:
+			missing.append({"furnace": "a finished furnace to work at (kneel at it)", "anvil": "an anvil to work at (kneel at it)",
+					"meteorite": "a meteorite to work at", "water": "the water to wash it in (kneel looking at the water)"}.get(r.at, r.at))
+		elif r.at != "water" and not _station_ok():
+			missing.append("the %s, where it stands" % r.at)
+		elif r.at == "furnace" and not station.complete():
+			missing.append("a finished furnace (it still needs: %s)" % station.next_part().verb.to_lower())
+	if r.get("whetstone", false) and station_kind == "anvil" and _station_ok() and not station.whetstone:
+		missing.append("a whetstone seated in the anvil's corner (hold one and press E at the anvil)")
 	if r.has("wear") and laid(r.wear) + Game.inventory.count(r.wear) > 0 and _uses_of(r.wear) < r.sharpen.size():
 		missing.append("a %s with %d uses left" % [Items.item_name(r.wear), r.sharpen.size()])
 	if r.get("tier", "hand") == "bench" and bench == null:
@@ -540,16 +599,34 @@ func wood_options() -> Array:
 	if on == "":
 		return out
 	var axe: bool = laid_tag("chop") != "" or Game.inventory.has_tag("chop")
+	var saw: bool = laid_tag("saw") != "" or Game.inventory.has_tag("saw")
+	var kind: String = tree.kind if on == "tree" else String(wood.get("kind")) if wood else ""
+	var hard: bool = Chunk.TREES.has(kind) and not Chunk.TREES[kind].get("soft", true)
+	# The best axe you have: a hard tree needs metal, and copper is slow on it.
+	var axe_tier := ""
+	var ai: int = Game.inventory.tool_slot("chop")
+	if laid_tag("chop") != "":
+		axe_tier = Items.def(laid_tag("chop")).get("tier", "")
+	elif ai >= 0:
+		axe_tier = Items.def(Game.inventory.slots[ai].id).get("tier", "")
+	for best in Game.inventory.slots:
+		if best != null and "chop" in Items.def(best.id).get("tags", []):
+			var t: String = Items.def(best.id).get("tier", "")
+			if t == "advanced" or (t == "metal" and axe_tier != "advanced"):
+				axe_tier = t
+	var metal_axe := axe_tier in ["metal", "advanced"]
 	for r in Items.woodwork(on):
 		r = r.duplicate()
 		var missing := []
+		if r.wood == "poles" and kind != "calamites":
+			continue  # only a hollow Calamites trunk splits into poles
+		if r.get("saw", false) and not saw:
+			continue  # offered only with a saw
 		match on:
 			"tree":
 				var def: Dictionary = Chunk.TREES[tree.kind]
 				r.verb = "Fell the %s" % def.get("name", "tree")
 				r.steps = clampi(roundi(tree.r * 20.0), 5, 10)
-				if not def.get("soft", true):
-					missing.append("a metal axe (too hard for stone)")
 			"felled":
 				var left: int = wood.logs_left()
 				if left <= 1:
@@ -557,7 +634,15 @@ func wood_options() -> Array:
 					r.label = "%s, and the crown is cut off" % ("Log" if wood.length() >= 1.0 else "Short Log")
 				else:
 					r.label = "Log (2 m), %d more in the trunk" % (left - 1)
-		if missing.is_empty() and not axe:
+		if r.wood == "hew" and hard:
+			missing.append("a saw (too hard to hew)")
+		elif hard and not r.get("saw", false) and r.wood in ["fell", "buck", "shorten"]:
+			if not metal_axe:
+				missing.append("a metal axe (too hard for stone)")
+			elif axe_tier == "metal":
+				r.steps = Items.recipe_steps(r) * 2  # copper bites slowly into hardwood
+				r.label = String(r.get("label", "")) + " (slow going with copper)"
+		if missing.is_empty() and not axe and not r.get("saw", false):
 			missing.append("a stone axe")
 		out.append({"recipe": r, "missing": missing})
 	return out
@@ -587,7 +672,7 @@ func begin(r: Dictionary) -> bool:
 		return _begin_house(r)
 	for id in r.in:
 		used.append_array(_take_pile(id, r.in[id]))
-	recipe = r
+	recipe = _paced(r)
 	progress = 0.0
 	steps = 0
 	_shown = -1.0
@@ -600,6 +685,63 @@ func begin(r: Dictionary) -> bool:
 	_rebuild_work()
 	changed.emit()
 	return true
+
+
+func _paced(r: Dictionary) -> Dictionary:
+	## The recipe with its steps for the tools at hand: twice as many with a
+	## blunt metal tool, half with its `fast_tool`, its `anvil_steps` at an
+	## anvil.
+	if r.get("act", "") != "steps" or r.has("house") or r.has("plot") or r.has("trap"):
+		return r
+	var n := Items.recipe_steps(r)
+	var m := n
+	if r.has("anvil_steps") and station_kind == "anvil":
+		m = int(r.anvil_steps)
+	if r.has("fast_tool") and laid(r.fast_tool) + Game.inventory.count(r.fast_tool) > 0:
+		m = ceili(m / 2.0)
+	var tags: Array = r.get("tool_tags", []).duplicate()
+	if r.has("tool_tag"):
+		tags.append(r.tool_tag)
+	if r.has("wood"):
+		tags.append("saw" if r.get("saw", false) else "chop")
+	if r.has("butcher"):
+		tags.append("cut")
+	for tag in tags:
+		var i: int = Game.inventory.tool_slot(tag)
+		if i >= 0 and Game.inventory.blunt(i) and laid_tag(tag) == "":
+			m *= 2
+			break
+	if m == n:
+		return r
+	var out := r.duplicate()
+	out.steps = m
+	return out
+
+
+func _use_tools(r: Dictionary) -> void:
+	## A finished job wears the tools it needed (Inventory.use_tool): stone
+	## ones may break, metal edges wear. Not tools laid out on the ground.
+	var tags: Array = r.get("tool_tags", []).duplicate()
+	if r.has("tool_tag"):
+		tags.append(r.tool_tag)
+	for tag in tags:
+		if tag == "hammer" and r.get("hammer_wear", false):
+			continue  # worn a strike at a time instead (_hammer_wear)
+		if laid_tag(tag) == "":
+			Game.inventory.use_tag(tag)
+
+
+func _hammer_wear() -> void:
+	## A strike on iron with a copper hammer mushrooms its face a little (its
+	## `uses`); an iron hammer never wears. A worn-out one is only copper now.
+	if Game.inventory.count("iron_hammer") > 0 or laid("iron_hammer") > 0:
+		return
+	if Game.inventory.count("copper_hammer") == 0:
+		return
+	var left: int = Game.inventory.wear("copper_hammer")
+	if left == 0:
+		_give("copper_grains", 2, 0.0)
+		Game.notify("Your copper hammer's face is beaten out of shape. It is only good for melting down now: Copper Grains x2.")
 
 
 func cancel() -> void:
@@ -633,6 +775,9 @@ func build_blocker() -> String:
 
 func _build(r: Dictionary) -> void:
 	## Puts up what the recipe builds just in front of the spot, then you stand.
+	if r.build is String and r.build != "workbench":
+		_build_here(r)
+		return
 	used.clear()
 	recipe = {}
 	var world: Node = player.world if player else null
@@ -651,24 +796,80 @@ func _build(r: Dictionary) -> void:
 		world.close_work.call_deferred()
 
 
+func _build_here(r: Dictionary) -> void:
+	## A charcoal clamp or a furnace's stone ring, built just in front of you.
+	used.clear()
+	recipe = {}
+	_use_tools(r)
+	var world: Node = player.world if player else null
+	var at := to_global(Vector3(0, 0, -0.9))
+	at.y = _ground_at(at)
+	if world and world.has_method("add_" + String(r.build)):
+		world.call("add_" + String(r.build), at, global_rotation.y + PI)
+	Sfx.play("craft", -4.0)
+	Game.crafted.emit(r.out)
+	if r.build == "clamp":
+		Game.notify("You build a charcoal clamp. Light it with an ember or a lit torch (E), and leave it to smoulder for a day.")
+	else:
+		Game.notify("You lay the furnace's stone ring. Build the rest on it (E): the clay shaft comes next.")
+	_rebuild_work()
+	changed.emit()
+	finished.emit(r.out)
+	if world and world.has_method("close_work"):
+		world.close_work.call_deferred()
+
+
+func _finish_sharpen(r: Dictionary) -> void:
+	## A tool drawn along the whetstone: the most worn one of its kind.
+	used.clear()
+	recipe = {}
+	var best := -1
+	for i in Game.inventory.SIZE:
+		var sl = Game.inventory.slots[i]
+		if sl != null and sl.id == r.sharpen_tool and (best < 0 or Game.inventory.edge_left(i) < Game.inventory.edge_left(best)):
+			best = i
+	if best >= 0:
+		Game.inventory.sharpen(best)
+		Game.notify("The %s is sharp again." % Items.item_name(r.sharpen_tool).to_lower())
+	Sfx.play("craft", -4.0)
+	Game.crafted.emit("sharpened")
+	_rebuild_work()
+	changed.emit()
+	finished.emit(r.sharpen_tool)
+
+
 func _finish(out := "") -> void:
 	var r := recipe
 	if r.has("build"):
 		_build(r)
 		return
+	if r.has("sharpen_tool"):
+		_finish_sharpen(r)
+		return
+	_use_tools(r)
+	for id in r.get("give", {}):
+		_give(id, int(r.give[id]), 0.0)
+	if r.get("cast", false) and not Game.copper_cast:
+		Game.copper_cast = true
+	if r.get("at", "") == "meteorite" and _station_ok() and station.has_method("chip"):
+		var gone: bool = station.chip(Items.weight(r.out))
+		if gone:
+			station = null
+			station_kind = ""
 	if r.get("bait", false) is String:
 		# A baited rod: the same rod, with its bait in the slot's data.
 		used.clear()
 		recipe = {}
-		var data := Items.bait_data(r.bait)
-		if Game.inventory.add("fishing_rod", 1, 0.0, true, data) > 0 and player and player.world:
-			player.world.spawn_pickup("fishing_rod", 1, to_global(Vector3(0, 0.2, 0.3)), 0.0, true, data)
+		var rod: String = r.get("rod", "fishing_rod")
+		var data := Items.bait_data(r.bait, rod)
+		if Game.inventory.add(rod, 1, 0.0, true, data) > 0 and player and player.world:
+			player.world.spawn_pickup(rod, 1, to_global(Vector3(0, 0.2, 0.3)), 0.0, true, data)
 		Sfx.play("craft", -4.0)
 		Game.crafted.emit("baited")
 		Game.notify("You bait the rod with %s." % Items.item_name(r.bait).to_lower())
 		_rebuild_work()
 		changed.emit()
-		finished.emit("fishing_rod")
+		finished.emit(rod)
 		return
 	var id: String = out if out != "" else r.out
 	var n: int = r.n if id == r.out else 1
@@ -742,6 +943,8 @@ func _butcher_step() -> void:
 		_rebuild_work()
 		changed.emit()
 		return
+	if laid_tag("cut") == "":
+		Game.inventory.use_tag("cut")
 	var side: Vector3 = c.global_transform.basis.x.normalized() * (c.def.radius + 0.6)
 	var pile_at: Vector3 = c.global_position + side
 	match recipe.butcher:
@@ -794,6 +997,9 @@ func _wood_step() -> void:
 	used.clear()
 	recipe = {}
 	var world: Node = player.world if player else null
+	var tag := "saw" if r.get("saw", false) else "chop"
+	if laid_tag(tag) == "":
+		Game.inventory.use_tag(tag)
 	match r.wood:
 		"fell":
 			var t := tree
@@ -844,7 +1050,7 @@ func _wood_step() -> void:
 			wood.lie_on_ground()
 			wood = null
 			Game.notify("You cut the log into four short logs.")
-		"hew", "split":
+		"hew", "split", "poles", "saw":
 			var got := []
 			for id in r.give:
 				# Boards are of the tree the log came from.
@@ -856,7 +1062,8 @@ func _wood_step() -> void:
 				got.append("%s x%d" % [Items.item_name(gid), r.give[id]])
 			wood.queue_free()
 			wood = null
-			Game.notify("%s: %s." % ["You hew the log into boards" if r.wood == "hew" else "You split the round", ", ".join(got)])
+			Game.notify("%s: %s." % [{"hew": "You hew the log into boards", "split": "You split the round", "poles": "You split the trunk into poles",
+					"saw": "You saw the log into boards"}[r.wood], ", ".join(got)])
 	Sfx.play("craft", -4.0)
 	Game.crafted.emit(r.out if r.out != "" else r.wood)
 	_rebuild_work()
@@ -974,9 +1181,17 @@ func instructions() -> String:
 		"knap":
 			return "%s the %s to strike flakes off. Leave only the outlined %s." % ["Tap" if Settings.touch else "Click", _knap_stuff(), Items.item_name(recipe.out).to_lower()]
 	var how: String = recipe.how
+	var each: Array = recipe.get("step_how", [])
+	if not each.is_empty():
+		how = each[mini(steps * each.size() / maxi(Items.recipe_steps(recipe), 1), each.size() - 1)]
 	if recipe.has("sharpen") and steps in recipe.sharpen:
-		how = "Sharpen the %s with your blade (it wears one use off)." % Items.item_name(recipe.wear).to_lower()
-	return "%s: %s  (%d / %d)" % [recipe.verb, how, steps, Items.recipe_steps(recipe)]
+		how = recipe.get("wear_how", "Sharpen the %s with your blade (it wears one use off)." % Items.item_name(recipe.wear).to_lower())
+	var heat := ""
+	if recipe.has("melt") and _station_ok() and station.has_method("heat_name"):
+		heat = "   Furnace: %s" % station.heat_name()
+		if _cold_step:
+			heat += " (not hot enough: blow faster)"
+	return "%s: %s  (%d / %d)%s" % [recipe.verb, how, steps, Items.recipe_steps(recipe), heat]
 
 
 # --- Hands-on work -------------------------------------------------------------------
@@ -1035,6 +1250,21 @@ func step() -> void:
 	if recipe.has("wood"):
 		_wood_step()
 		return
+	if recipe.has("at") and recipe.at != "water" and not _station_ok():
+		return  # the anvil or meteorite was carried off
+	if recipe.has("melt") and station and station.has_method("blow"):
+		# Every click at the furnace is a breath down the blowpipes; while the
+		# copper melts, a step only counts at full heat.
+		var hot: bool = station.blow(player)
+		_cold_step = steps >= recipe.melt[0] and steps < recipe.melt[1] and not hot
+		if _cold_step:
+			_thump = 0.5
+			Sfx.play("rustle", -10.0, 0.3)
+			_rebuild_work()
+			changed.emit()
+			return
+	if recipe.get("hammer_wear", false):
+		_hammer_wear()
 	var sharpening: bool = recipe.has("wear") and steps in recipe.sharpen
 	if sharpening:
 		_wear()
@@ -1504,6 +1734,15 @@ func _rebuild_work() -> void:
 				Assets.canteen(b, Items.def("canteen").color, Vector3(0, 0, -0.08), k / float(n))
 			if k >= 2 and k < 4:
 				b.blob(Vector3(0.18, 0.02, -0.05), Vector3(0.04, 0.02, 0.03), 2, 6, Items.def("wax").color, _rng, 0.2, "organic")
+		"flask":
+			# Two bars beaten flat, raised into bowls, seamed and necked,
+			# waxed, then stoppered and corded (Assets.flask's stages).
+			var bars := maxi(2 - k, 0)
+			for i in bars:
+				b.box(Vector3(0.12 - i * 0.24, 0.012, 0.12), Vector3(0.12, 0.024, 0.04), Items.def("copper_bar").color, Basis(), "metal")
+			if k >= 1:
+				Assets.flask(b, Items.def("wax").color if k >= 7 else Assets.FLASK_COPPER, Vector3(0, 0, -0.05),
+						[0.0, 0.1, 0.3, 0.4, 0.5, 0.75, 0.8, 1.0][mini(k, 7)])
 		"soup_pot_unfired":
 			# Coiled up on the platter, then the tripod boards pinned together.
 			var col: Color = Items.def("clay").color
@@ -1793,6 +2032,9 @@ func _target(out: String, k: int) -> Vector3:
 		"canteen":
 			return [Vector3(0.0, 0.06, 0.2), Vector3(0.0, 0.22, -0.08), Vector3(0.0, 0.12, -0.04), Vector3(0.07, 0.12, -0.04),
 					Vector3(0.0, 0.27, -0.08), Vector3(0.1, 0.3, -0.08)][mini(k, 5)]
+		"flask":
+			return [Vector3(0.12, 0.03, 0.12), Vector3(-0.12, 0.03, 0.12), Vector3(-0.1, 0.04, -0.05), Vector3(0.1, 0.04, -0.05),
+					Vector3(0.0, 0.18, -0.05), Vector3(0.0, 0.19, -0.05), Vector3(0.05, 0.1, -0.02), Vector3(0.0, 0.22, -0.05)][mini(k, 7)]
 		"soup_pot_unfired":
 			if k < 5:
 				var a := TAU * k / 5.0 + 0.3

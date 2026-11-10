@@ -197,6 +197,10 @@ func start_work() -> void:
 			and (not f.has_method("wants_craft") or f.wants_craft()):
 		f.craft_interact(player)  # a soup pot: pick it up to carry
 		return
+	if f != null and is_instance_valid(f) and f.has_method("station_kind") and f.station_kind() != "" and not player.hauling:
+		# A furnace, an anvil or a meteorite: work at it (metals.md).
+		_kneel_beside(f, "station", {"station_kind": f.station_kind()})
+		return
 	var bench := bench_ahead()
 	if bench and not player.hauling:
 		_start_bench_work(bench)
@@ -214,7 +218,12 @@ func start_work() -> void:
 	if carcass and carcass._eater():
 		Game.notify("The %s is eating it." % carcass._eater().def.name)
 		return
-	var why := work_blocker(at, carcass != null)
+	# Looking at the water with a washing pan: wash copper there, kneeling
+	# at the edge (metals.md).
+	var washing: bool = carcass == null and bool(player.get("focus_water")) and Game.inventory.count("washing_pan") > 0
+	if washing:
+		at = player.global_position + fwd * 0.35
+	var why := work_blocker(at, carcass != null or washing)
 	if why != "":
 		Game.notify(why)
 		return
@@ -231,6 +240,8 @@ func start_work() -> void:
 	work = WorkSpot.new()
 	work.where = where
 	work.player = player
+	if washing:
+		work.station_kind = "water"
 	if carcass and small == "":
 		work.carcass = carcass
 	add_child(work)
@@ -319,7 +330,7 @@ func start_plot_work(plot: Node3D) -> void:
 	_kneel_beside(plot, "plot")
 
 
-func _kneel_beside(target: Node3D, field: String) -> void:
+func _kneel_beside(target: Node3D, field: String, extra := {}) -> void:
 	## Kneel facing a thing on the ground, the work spot just short of it, for
 	## work done on the thing itself (work_spot's `field` set to it).
 	if work or inv_ui.visible or player.ui_open:
@@ -344,6 +355,8 @@ func _kneel_beside(target: Node3D, field: String) -> void:
 	work.where = where
 	work.player = player
 	work.set(field, target)
+	for k in extra:
+		work.set(k, extra[k])
 	add_child(work)
 	work.global_transform = Transform3D(Basis(Vector3.UP, yaw), at)
 	player.ui_open = true

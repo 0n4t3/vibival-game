@@ -201,6 +201,16 @@ static func draw_item(ci: CanvasItem, r: Rect2, id: String) -> void:
 			ci.draw_arc(o + Vector2(0, s * 0.25), s * 0.62, 0, TAU, 16, wood.darkened(0.35), 1.5)
 			ci.draw_rect(Rect2(o + Vector2(-s * 0.14, -s * 0.6), Vector2(s * 0.28, s * 0.3)), wood.darkened(0.1))
 			ci.draw_rect(Rect2(o + Vector2(-s * 0.12, -s * 0.78), Vector2(s * 0.24, s * 0.2)), c)
+		"flask":
+			# A round copper body seen flat on, a short neck, a stopper the
+			# colour of what is in it, and the cord over the top.
+			var cu := Color(0.80, 0.47, 0.24)
+			ci.draw_arc(o + Vector2(0, s * 0.05), s * 0.62, PI * 1.15, PI * 1.85, 10, Color(0.66, 0.6, 0.36), 1.5)
+			ci.draw_circle(o + Vector2(0, s * 0.25), s * 0.6, cu)
+			ci.draw_arc(o + Vector2(0, s * 0.25), s * 0.6, 0, TAU, 16, cu.darkened(0.4), 1.5)
+			ci.draw_arc(o + Vector2(-s * 0.15, s * 0.1), s * 0.3, PI * 1.1, PI * 1.5, 6, cu.lightened(0.35), 1.5)
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.12, -s * 0.55), Vector2(s * 0.24, s * 0.25)), cu.darkened(0.15))
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.13, -s * 0.75), Vector2(s * 0.26, s * 0.2)), c)
 		"soup_pot":
 			# Three boards leaning together, the pot hanging under them.
 			var wood := Color(0.62, 0.50, 0.33)

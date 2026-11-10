@@ -25,6 +25,15 @@ For developers (and AI agents) working on the game, the
 [game doc](game-doc.md) describes every mechanic, its numbers and where it
 lives in the code.
 
+## Late game
+
+Late-game content is built on the `late-game` branch and is not in the main
+game until that branch is merged:
+
+- [Late game: boats and metals](late-game.md): docks, rafts, the rocky
+  islands, copper, tool wear and meteoric iron.
+- For developers: [game doc: late game](game-doc-late-game.md).
+
 ## Quick tips
 
 - Water is the most dangerous place in the swamp. Drink from a clay pot

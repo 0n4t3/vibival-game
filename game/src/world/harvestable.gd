@@ -40,6 +40,10 @@ const KINDS := {
 		"keep": true, "radius": 0.5, "height": 0.4, "length": 4.4},
 	"clay_bank": {"name": "Clay Bank", "verb": "Dig clay", "mesh": "clay_bank", "bare": "",
 		"yield": {"clay": [2, 4]}, "regrow": [1.5, 2.5], "keep": true, "radius": 1.0, "height": 0.2},
+	# Green-stained copper ore in the islands' rock (outcrop.gd, metals.md):
+	# only a copper hammer breaks it out.
+	"copper_outcrop": {"name": "Copper Outcrop", "verb": "Break out ore", "mesh": "", "bare": "",
+		"yield": {"copper_ore": [3, 5]}, "regrow": [10.0, 10.0], "keep": true, "radius": 0.9, "height": 0.8},
 }
 
 var kind := ""
@@ -114,7 +118,7 @@ func _refresh() -> void:
 
 func growing() -> bool:
 	## A plant growing back (logs and clay banks only fill up again).
-	return not is_ready() and not kind in ["rotting_log", "clay_bank"]
+	return not is_ready() and not kind in ["rotting_log", "clay_bank", "copper_outcrop"]
 
 
 func feed(_player: Node) -> bool:

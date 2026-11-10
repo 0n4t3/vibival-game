@@ -521,7 +521,29 @@ func haul_interact(player: Node) -> bool:
 # --- Interaction ---------------------------------------------------------------------
 
 const POURS := {"pot_clean": true, "canteen_clean_1": true, "canteen_clean_2": true,
-	"pot_dirty": false, "canteen_dirty_1": false, "canteen_dirty_2": false}
+	"pot_dirty": false, "canteen_dirty_1": false, "canteen_dirty_2": false,
+	"flask_clean_1": true, "flask_clean_2": true, "flask_clean_3": true, "flask_clean_4": true,
+	"flask_dirty_1": false, "flask_dirty_2": false, "flask_dirty_3": false, "flask_dirty_4": false}
+## What draws alcohol: each held container and what it holds alcohol as. A
+## draw adds DRAW measures, up to what that holds (Items `measures`).
+const DRAWS := {"canteen": "canteen_alcohol", "canteen_alcohol": "canteen_alcohol",
+	"flask": "flask_alcohol", "flask_alcohol": "flask_alcohol"}
+
+
+func _drawn_into(held: String, data: Dictionary) -> Dictionary:
+	## {id, left} the held container would hold after a draw, or {} if it is full.
+	var into: String = DRAWS[held]
+	var cap := int(Items.def(into).measures)
+	var had := int(data.get("left", cap)) if held == into else 0
+	if had >= cap:
+		return {}
+	return {"id": into, "left": mini(had + DRAW, cap)}
+
+
+func player_slot_data() -> Dictionary:
+	## The held slot's data (what is left in a container of alcohol).
+	var s = Game.inventory.held()
+	return s.get("data", {}) if s != null else {}
 
 
 func status() -> String:
@@ -584,8 +606,11 @@ func prompt(player: Node) -> String:
 	var more := "   Open [Right-click]   Carry [C]"
 	if POURS.has(held):
 		return "Pour in a serving of %s [E]" % ("boiled water" if POURS[held] else "swamp water") + more
-	if (held == "canteen" or held == "canteen_alcohol") and mode() == "alcohol" and not items.is_empty():
-		return ("Draw alcohol into the canteen [E]" if alcohol_ready() else "The brew isn't ready yet") + more
+	if DRAWS.has(held) and mode() == "alcohol" and not items.is_empty():
+		var what := "flask" if held.begins_with("flask") else "canteen"
+		if _drawn_into(held, player_slot_data()).is_empty():
+			return "The %s is full of alcohol" % what + more
+		return ("Draw alcohol into the %s [E]" % what if alcohol_ready() else "The brew isn't ready yet") + more
 	if held == "salt" and sealed():
 		var w := would_spoil("", 1)
 		return "Add salt [E]%s" % ("   (it would go rancid: %s)" % w if w != "" and not rancid else "") + more
@@ -615,12 +640,13 @@ func interact(player: Node) -> void:
 			var def := Items.def(held)
 			inv.replace(inv.selected, def.get("empty", "pot"))
 			Sfx.play("splash", -10.0, 0.2)
-	elif (held == "canteen" or held == "canteen_alcohol") and mode() == "alcohol" and not items.is_empty():
-		why = draw_alcohol()
+	elif DRAWS.has(held) and mode() == "alcohol" and not items.is_empty():
+		var into := _drawn_into(held, player_slot_data())
+		why = "It is already full of alcohol." if into.is_empty() else draw_alcohol()
 		if why == "":
-			inv.replace(inv.selected, "canteen_alcohol", 0.0, Items.measures_data("canteen_alcohol", DRAW))
+			inv.replace(inv.selected, into.id, 0.0, Items.measures_data(into.id, into.left))
 			Sfx.play("splash", -10.0, 0.2)
-			Game.notify("You draw off a canteen of alcohol (%d measures)." % DRAW)
+			Game.notify("You draw off a serving of alcohol: %d of %d measures." % [into.left, int(Items.def(into.id).measures)])
 	elif held == "salt":
 		why = add_salt()
 		if why == "":

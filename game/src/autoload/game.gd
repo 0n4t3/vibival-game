@@ -88,6 +88,10 @@ var cheats := {"damage": true, "needs": true, "hostile": true}
 var creatures: Array = []
 var fires: Array = []
 var houses: Array = []      # house sites and finished houses (house.gd)
+var docks: Array = []       # dock sites and finished docks (dock.gd)
+var rafts: Array = []       # rafts, being built or afloat (raft.gd)
+var islands: Array = []     # the swamp's rocky islands (terrain.gd), for island_safe
+var copper_cast := false    # you have cast copper: the next meteor shower drops a meteorite
 var dev := {}
 
 var _scene_time := 0.0
@@ -145,6 +149,7 @@ func start_new_game(tutorial: bool) -> void:
 	hints_seen.clear()
 	tiers = ["hand"]
 	tools_known = []
+	copper_cast = false
 	restore = {}
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(suspend_path()))
 	time = 0.0
@@ -166,6 +171,9 @@ func goto(scene: String) -> void:
 	creatures.clear()
 	fires.clear()
 	houses.clear()
+	docks.clear()
+	rafts.clear()
+	islands = []
 	player = null
 	_scene_time = 0.0
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -216,7 +224,8 @@ func night_index() -> int:
 
 func can_sleep_in() -> float:
 	## Seconds until the player is tired enough to sleep again (0 = now).
-	return maxf(last_sleep + SLEEP_COOLDOWN - time, 0.0)
+	var wait := last_sleep + SLEEP_COOLDOWN - time
+	return wait if wait > 0.01 else 0.0  # not a rounding error's worth
 
 
 # --- Worlds ----------------------------------------------------------------------
@@ -450,6 +459,7 @@ func save_game(world_state: Dictionary, suspended := false) -> bool:
 		"hints": hints_seen,
 		"tiers": tiers,
 		"tools_known": tools_known,
+		"copper_cast": copper_cast,
 		"inventory": inventory.to_dict(),
 	}
 	data.merge(world_state)
@@ -529,6 +539,7 @@ func apply_save(data: Dictionary) -> void:
 	plantings = data.get("plantings", {})
 	hints_seen = data.hints
 	tiers = data.get("tiers", ["hand"])
+	copper_cast = bool(data.get("copper_cast", false))
 	inventory = Inventory.new()
 	inventory.from_dict(data.inventory)
 	tools_known = []
@@ -619,6 +630,29 @@ func sheltered(pos: Vector3) -> bool:
 		if is_instance_valid(h) and h.shelters(pos):
 			return true
 	return false
+
+
+func dock_safe(pos: Vector3) -> bool:
+	## Whether pos is on a finished dock or in the water right round it, where
+	## the spiked piles keep the big amphibians away (dock.gd).
+	for d in docks:
+		if is_instance_valid(d) and d.guards(pos):
+			return true
+	return false
+
+
+func island_safe(pos: Vector3) -> bool:
+	## Whether pos is on a rocky island or in the ring of water round it,
+	## where no water predator comes (terrain.gd ISLAND_SAFE).
+	for isl in islands:
+		if Vector2(pos.x - isl.x, pos.z - isl.z).length() < isl.r + 25.0:
+			return true
+	return false
+
+
+func safe(pos: Vector3) -> bool:
+	## Nothing comes for you here: a finished house, a finished dock, an island.
+	return sheltered(pos) or dock_safe(pos) or island_safe(pos)
 
 
 func nearest_fire(pos: Vector3, radius: float) -> Node3D:

@@ -22,6 +22,12 @@ const Campfire := preload("res://src/world/campfire.gd")
 const Intro := preload("res://src/world/intro.gd")
 const Fishing := preload("res://src/world/fishing.gd")
 const House := preload("res://src/world/house.gd")
+const Weather := preload("res://src/world/weather.gd")
+const Dock := preload("res://src/world/dock.gd")
+const Raft := preload("res://src/world/raft.gd")
+const Furnace := preload("res://src/world/furnace.gd")
+const Clamp := preload("res://src/world/clamp.gd")
+const HeavyStone := preload("res://src/world/heavy_stone.gd")
 const Breakroom := preload("res://src/world/breakroom.gd")
 
 var _failures := 0
@@ -196,12 +202,139 @@ func _ready() -> void:
 		await test_fishing()
 		await test_fishing_line()
 		await test_fish_species()
+	if only.is_empty() or "boats" in only:
+		print("== boats")
+		await test_boats()
+	if only.is_empty() or "metals" in only:
+		print("== metals")
+		test_tool_wear()
+		await test_metals()
+		await test_meteor_weather()
+		await test_copper_vessels()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(Game.save_path))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(Game.suspend_path()))
 	print("%d checks, %d failures" % [_checks, _failures])
 	print("TESTS PASSED" if _failures == 0 else "TESTS FAILED")
 	get_tree().quit(1 if _failures else 0)
 
+
+func test_copper_vessels() -> void:
+	## The copper flask and the copper soup pot (late game).
+	var w: Node = await _new_swamp()
+	var p: Node = w.player
+	var spot: Vector3 = p.global_position
+	Game.inventory.clear()
+
+	# The flask: four servings, lighter than the two canteens it stands for.
+	var serving: float = Items.weight("canteen_clean_1") - Items.weight("canteen")
+	check(Items.weight("flask") < Items.weight("canteen") * 2.0, "an empty flask weighs less than two empty canteens (%.1f kg)" % Items.weight("flask"))
+	for kind in ["dirty", "clean", "soup", "soup_spoiled"]:
+		var ok := true
+		for n in range(1, 5):
+			var id := "flask_%s_%d" % [kind, n]
+			ok = ok and is_equal_approx(Items.weight(id), Items.weight("flask") + serving * n) \
+					and Items.def(id).empty == ("flask" if n == 1 else "flask_%s_%d" % [kind, n - 1])
+		check(ok, "a flask of %s weighs a serving more for each of four, and drinks down a serving at a time" % kind)
+	check(Items.weight("flask_clean_4") < Items.weight("canteen_clean_2") * 2.0, "full, it is lighter than two full canteens")
+	check(Items.def("flask_soup_1").decay == Items.def("canteen_soup_1").decay * 2.0, "soup keeps twice as long in copper")
+	check(Items.def("flask_alcohol").measures == 20 and Items.def("flask_alcohol").drained == "flask", "it holds twenty measures of alcohol")
+	check(Items.is_drink_container("flask_clean_2") and not Items.can_cure("flask_soup_2"), "a flask is a drink, not food to cure")
+	var fr: Dictionary = Items.recipe_for("flask")
+	check(fr.get("at", "") == "anvil" and fr.in.get("copper_bar", 0) == 2 and fr.get("tool_tag", "") == "hammer", "raised from two copper bars at the anvil with a hammer")
+
+	# Filled at the water: four servings of swamp water.
+	Game.inventory.add("flask")
+	var slot: int = Game.inventory.find("flask")
+	Game.inventory.select(slot)
+	p.focus = null
+	p.focus_water = true
+	p._interact()
+	check(Game.inventory.held_id() == "flask_dirty_4", "filled at the water: four servings, still in your hand")
+	p.consume_slot(slot)
+	check(Game.inventory.slots[slot].id == "flask_dirty_3", "a drink leaves three")
+	p.focus_water = false
+
+	# A soup pot fills it a serving at a time, and soup mixes by servings.
+	var sp: Node = w.add_soup_pot("soup_pot", spot + Vector3(4, 0, 0))
+	sp.water = 16.0
+	sp.dirty = false
+	Game.inventory.slots[slot] = {"id": "flask", "n": 1, "age": 0.0}
+	for n in 4:
+		sp.interact(p)
+	check(Game.inventory.held_id() == "flask_clean_4" and sp.water == 12.0, "four scoops of boiled water fill it")
+	Game.inventory.slots[slot] = {"id": "flask_soup_3", "n": 1, "age": 0.0, "data": {"protein": 4.0}}
+	sp.add_food("cooked_meat")
+	sp.advance(60.0, 60.0)
+	var meat: float = sp.per_serving("protein")
+	sp.interact(p)
+	var fs: Dictionary = Game.inventory.slots[slot]
+	check(fs.id == "flask_soup_4" and is_equal_approx(fs.data.protein, (4.0 * 3.0 + meat) / 4.0), "a fourth serving of soup counts a quarter of the mix (%.2f)" % fs.data.protein)
+	Game.inventory.slots[slot] = {"id": "flask_soup_4", "n": 1, "age": SoupPot.LIFE * 1.5, "data": {"protein": 3.0}}
+	Game.inventory.tick(2.0)
+	check(Game.inventory.slots[slot].id == "flask_soup_4", "soup a pot would have lost long ago still keeps in the flask")
+	Game.inventory.slots[slot].age = SoupPot.LIFE * 2.0 - 1.0
+	Game.inventory.tick(2.0)
+	check(Game.inventory.slots[slot].id == "flask_soup_spoiled_4", "until twice as long")
+
+	# Alcohol: a serving of brew is ten measures, the flask holds two.
+	var b: Node = w.add_vessel("vessel_sealed", spot + Vector3(-4, 0, 6))
+	Game.inventory.slots[slot] = {"id": "flask_clean_2", "n": 1, "age": 0.0}
+	b.interact(p)
+	check(b.water == 1 and Game.inventory.held_id() == "flask_clean_1", "a flask of boiled water pours a serving in")
+	b.water = 8
+	for id in ["roast_seed", "roast_seed", "cooked_fiddlehead"]:
+		b.add_food(id)
+	b.advance(b.FERMENT_TIME + 1.0, 0.0)
+	Game.inventory.slots[slot] = {"id": "flask", "n": 1, "age": 0.0}
+	check("into the flask" in b.prompt(p), "the vessel offers to draw into the flask (%s)" % b.prompt(p))
+	b.interact(p)
+	fs = Game.inventory.slots[slot]
+	check(fs.id == "flask_alcohol" and int(fs.data.left) == 10 and b.water == 7, "the first draw is ten measures")
+	b.interact(p)
+	fs = Game.inventory.slots[slot]
+	check(int(fs.data.left) == 20 and b.water == 6, "a second fills it to twenty")
+	b.interact(p)
+	check(int(Game.inventory.slots[slot].data.left) == 20 and b.water == 6 and "full" in b.prompt(p), "a full flask draws no more")
+	check(is_equal_approx(Game.inventory.durability(slot), 1.0), "its bar shows it full")
+	Game.inventory.slots[slot] = {"id": "flask_alcohol", "n": 1, "age": 0.0, "data": Items.measures_data("flask_alcohol", 1)}
+	p.consume_slot(slot)
+	check(Game.inventory.held_id() == "flask", "the last measure leaves the empty flask")
+	Game.inventory.slots[slot] = {"id": "canteen_alcohol", "n": 1, "age": 0.0, "data": Items.measures_data("canteen_alcohol", 4)}
+	b.interact(p)
+	check(int(Game.inventory.slots[slot].data.left) == 10 and b.water == 5, "a canteen still tops up to ten")
+	p.vitals.alcohol = 0.0
+
+	# The copper soup pot: 20 servings, boils 50% faster, keeps 20% longer.
+	var cr: Dictionary = Items.recipe_for("soup_pot_copper")
+	check(cr.get("at", "") == "anvil" and cr.in.get("copper_bar", 0) > 0 and Items.def("soup_pot_copper").get("carry", false), "a copper soup pot is raised at the anvil and carried")
+	var cp: Node = w.add_soup_pot("soup_pot_copper", spot + Vector3(-4, 0, -4))
+	check(cp.fired_pot() and cp.copper(), "it needs no firing")
+	cp.fill_dirty()
+	check(cp.water == 20.0 and cp.capacity() == 20.0 and cp.max_food() == 15.0, "it holds 20 servings of water and 15 food")
+	sp.empty_out()
+	sp.fill_dirty()
+	sp.advance(40.0, 40.0)
+	cp.advance(40.0, 40.0)
+	check(cp.boiling() and not cp.dirty and not sp.boiling(), "it comes to the boil in 40 s, before the clay pot")
+	for k in 15:
+		cp.add_food("roast_seed")
+	check(cp.add_food("roast_seed") != "" and cp.water <= 20.0 + 0.001, "15 food fill it")
+	cp.advance(60.0, 60.0)
+	var t0: float = Game.time
+	Game.time = t0 + SoupPot.LIFE * 1.15
+	check(not cp.spoiled(), "past the clay pot's 36 hours its soup still keeps")
+	var got: Dictionary = cp.scoop()
+	check(got.kind == "soup" and got.age < SoupPot.LIFE, "scooped out, it counts as soup that still has life in it (%.0f s)" % got.age)
+	Game.time = t0 + SoupPot.LIFE * 1.21
+	check(cp.spoiled(), "but not past 20% longer")
+	Game.time = t0
+	var d: Dictionary = cp.to_dict()
+	var cp2: Node = w.add_soup_pot(d.id, spot + Vector3(-4, 0, 4))
+	cp2.from_dict(d)
+	check(cp2.copper() and cp2.water > 16.0, "saved and loaded, it keeps its 20-serving load (%.1f)" % cp2.water)
+	check(cp.tooltip(p).begins_with("Copper Soup Pot:"), "its panel names it (%s)" % cp.tooltip(p).get_slice("\n", 0))
+	w.queue_free()
+	await _frames(2)
 
 func test_data() -> void:
 	for id in Items.ITEMS:
@@ -891,6 +1024,9 @@ func _fresh_state() -> void:
 	Game.creatures.clear()
 	Game.fires.clear()
 	Game.houses.clear()
+	Game.docks.clear()
+	Game.rafts.clear()
+	Game.copper_cast = false
 	Game.time = 0.0
 	Game.last_sleep = 0.0
 	Game.saved_night = -1
@@ -3208,8 +3344,8 @@ func test_paper() -> void:
 	book.free()
 	check(Items.ADVANCED in w.inv_ui.book_categories() and "Writing" in Items.CATEGORIES, "they are in the book")
 	# No other recipe uses up a container by mistake.
-	var odd := Items.RECIPES.filter(func(r): return r.out != "paper_wet" and r.in.keys().any(func(id): return Items.def(id).has("empty")))
-	check(odd.is_empty(), "only the sheet uses up a pot of water (%s)" % [odd.map(func(r): return r.out)])
+	var odd := Items.RECIPES.filter(func(r): return not r.out in ["paper_wet", "whetstone"] and r.in.keys().any(func(id): return Items.def(id).has("empty")))
+	check(odd.is_empty(), "only the sheet and the whetstone use up a pot of water (%s)" % [odd.map(func(r): return r.out)])
 	w.queue_free()
 	await _frames(2)
 
@@ -3251,7 +3387,7 @@ func test_canteen() -> void:
 	ui._cat = Items.ADVANCED
 	ui._refresh_book()
 	await _frames(1)
-	check(titles.call() == ["Wooden Canteen"], "it lists the canteen (%s)" % ", ".join(titles.call()))
+	check(titles.call().has("Wooden Canteen") and titles.call().all(func(t): return t in ["Wooden Canteen", "Unfired Blowpipe"]), "it lists the canteen (%s)" % ", ".join(titles.call()))
 	# Crafting the platter teaches it too.
 	Game.crafted.emit("clay_platter")
 	check("clay_platter" in Game.tools_known and ui.book_rack_tools().size() == 2, "making a clay platter adds its recipes")
@@ -4034,7 +4170,7 @@ func test_bedroll() -> void:
 	ev.action = "sleep"
 	ev.pressed = true
 	p._unhandled_input(ev)
-	check(w._sleeping, "tired, Z while looking at it sleeps at once, without a second press")
+	check(w._sleeping, "tired, Z while looking at it sleeps at once, without a second press (%s)" % w.sleep_blocker())
 	while w._sleeping:
 		await get_tree().process_frame
 	check(Game.can_sleep_in() > 0.0 and not p.vitals.on_bedroll, "slept (and the bedroll's healing is over)")
@@ -4984,7 +5120,7 @@ func test_weather() -> void:
 	var w: Node = await _new_swamp()
 	var p: Node = w.player
 	var ev: Node = w.weather
-	# Nothing unusual on the first two days, then about one day in five.
+	# Nothing unusual on the first two days, then about one day in three.
 	var early := 0
 	for i in 400:
 		if ev.roll_day(i % 2) != "":
@@ -4997,8 +5133,8 @@ func test_weather() -> void:
 		if k != "":
 			hits += 1
 			kinds[k] = true
-	check(absf(hits / 3000.0 - 0.2) < 0.03, "about 20%% of days have one (%.1f%%)" % (hits / 30.0))
-	check(kinds.size() == ev.KINDS.size(), "all seven kinds turn up")
+	check(absf(hits / 3000.0 - ev.CHANCE) < 0.03, "about a third of days have one (%.1f%%)" % (hits / 30.0))
+	check(kinds.size() == ev.ALL_KINDS.size(), "all eight kinds turn up")
 
 	# Night-sky events last the night; the others 6-12 minutes some time that day.
 	var day := 3
@@ -7553,5 +7689,337 @@ func test_prey_dressing() -> void:
 	ar.gnawed = true
 	ar.interact(p)
 	check(Game.inventory.count("gnawed_meat") == 1, "a gnawed Archaeothyris leaves gnawed meat")
+	w.queue_free()
+	await _frames(2)
+
+
+# --- Boats and metals (boats.md, metals.md) -------------------------------------------
+
+func test_boats() -> void:
+	## A dock built out from the bank keeps the water round it safe, and marks
+	## out a raft at its berth; both are saved.
+	var w: Node = await _new_swamp()
+	var p: Node = w.player
+	Game.inventory.clear()
+	var whys := {}
+	var start: Vector3 = p.global_position
+	var good := _find_spot(w, p.global_position, func(q):
+		if q.y < w.water_level() - 0.1 or q.y > w.water_level() + 0.6:
+			return false
+		for k in 8:
+			p.global_position = q + Vector3(0, 0.05, 0)
+			p.rotation.y = TAU * k / 8.0
+			var why: String = w.dock_spot(p).why
+			if why == "":
+				return true
+			whys[why] = whys.get(why, 0) + 1
+		return false)
+	check(good.is_finite(), "somewhere on the bank a dock can stand (%s)" % [whys])
+	if not good.is_finite():
+		w.queue_free()
+		return
+	check(good.distance_to(start) < 80.0, "near the spawn (%d m)" % good.distance_to(start))
+	# Just about anywhere along the shore: facing open water from the water's
+	# edge, a dock fits.
+	var tried := 0
+	var fits := 0
+	whys.clear()
+	for r in range(10, 200, 3):
+		for i in 24:
+			var a := TAU * i / 24.0
+			var q: Vector3 = start + Vector3(cos(a), 0, sin(a)) * r
+			q.y = w.ground_height(q.x, q.z)
+			if absf(q.y - w.water_level()) > 0.1:
+				continue
+			# Face the water: the way the ground falls away.
+			var dx: float = w.ground_height(q.x + 1.0, q.z) - w.ground_height(q.x - 1.0, q.z)
+			var dz: float = w.ground_height(q.x, q.z + 1.0) - w.ground_height(q.x, q.z - 1.0)
+			if Vector2(dx, dz).length() < 0.01:
+				continue
+			var down := -Vector2(dx, dz).normalized()
+			# Only real shore: open water ahead, not a puddle or a wet flat.
+			var deepest := 0.0
+			for m in range(2, 30, 2):
+				var g: Vector3 = q + Vector3(down.x, 0, down.y) * m
+				deepest = maxf(deepest, w.water_level() - w.ground_height(g.x, g.z))
+			if deepest < 0.3:
+				continue
+			p.global_position = q + Vector3(-down.x, 0, -down.y) * 1.0
+			p.rotation.y = atan2(-down.x, -down.y)
+			tried += 1
+			var why: String = w.dock_spot(p).why
+			if why == "":
+				fits += 1
+			else:
+				whys[why] = whys.get(why, 0) + 1
+	check(tried > 30 and fits >= tried * 0.8, "a dock fits just about anywhere along the shore (%d of %d: %s)" % [fits, tried, whys])
+	p.global_position = good + Vector3(0, 0.05, 0)
+	for k in 8:
+		p.rotation.y = TAU * k / 8.0
+		if w.dock_spot(p).why == "":
+			break
+	var spot: Dictionary = w.dock_spot(p)
+	var d: Node = w.add_dock(spot.at, spot.yaw)
+	await _frames(2)
+	check(not d.complete() and Game.docks.has(d), "a dock site is marked out")
+	var end: Vector3 = d.to_global(Vector3(0, 0, -Dock.LEN + 0.5))
+	check(not Game.dock_safe(end), "an unfinished dock keeps nothing away")
+	d.build_to(Dock.PARTS.size())
+	await _frames(2)
+	check(d.complete() and Game.dock_safe(end) and Game.safe(end), "a finished dock keeps the water round it safe")
+	var r: Node = w.raft_at_dock(d)
+	check(r != null and not r.complete(), "a finished dock marks out a raft at its berth")
+	if r:
+		r.build_to(Raft.PARTS.size())
+		for k in 3:
+			await get_tree().physics_frame
+		check(r.complete(), "the raft is built")
+		check(r.global_position.y > w.water_level() + 0.05 and r.draft() < 0.2, "it rides high in the water")
+	var state: Dictionary = w._world_state()
+	check(state.docks.size() == 1 and state.rafts.size() == 1, "the dock and the raft are saved")
+	# Poles: from a stripped Calamites log, hardened in the fire.
+	check(Items.def("calamites_pole").get("tags", []).has("pole") and Items.exists("hardened_pole"), "a Calamites pole is a pole")
+	w.queue_free()
+	await _frames(2)
+
+
+func test_tool_wear() -> void:
+	## Stone tools may snap once well used; metal edges go blunt and are
+	## sharpened; a copper hammer wears out into grains.
+	_fresh_state()
+	var inv: Inventory = Game.inventory
+	inv.clear()
+	inv.add("stone_axe", 1)
+	var i: int = inv.find("stone_axe")
+	for k in Inventory.STONE_SAFE:
+		inv.use_tool(i, 0.0)
+	check(inv.slots[i] != null and inv.slots[i].id == "stone_axe", "a stone axe never breaks in its first uses")
+	check(inv.use_tool(i, 0.5) == "" and inv.slots[i].id == "stone_axe", "past them, a good roll keeps it")
+	check(inv.use_tool(i, 0.0) == "broke" and inv.slots[i].id == "stick", "a bad roll snaps the head off, leaving the haft")
+	# Fresh tools may share a slot (once stacks have no size limit): a use
+	# wears only the one in hand, and the next use wears the same one.
+	inv.clear()
+	inv.add("stone_axe", 3, 0.0, true)
+	i = inv.find("stone_axe")
+	inv.use_tool(i, 0.5)
+	inv.use_tool(i, 0.5)
+	var worn := 0
+	var fresh := 0
+	for s in inv.slots:
+		if s != null and s.id == "stone_axe":
+			if s.has("data"):
+				worn += s.n
+				check(int(s.data.used) == 2, "the axe in hand took both uses")
+			else:
+				fresh += s.n
+	check(inv.count("stone_axe") == 3 and worn == 1 and fresh == 2 and inv.slots[i].has("data"), "only the axe in hand is worn, and it stays in hand")
+	inv.clear()
+	inv.add("stone_axe", 1)
+	i = inv.find("stone_axe")
+	inv.clear()
+	inv.add("copper_axe", 1)
+	inv.add("stone_axe", 1)
+	var c: int = inv.find("copper_axe")
+	check(inv.tool_slot("chop") == c, "the copper axe is picked over the stone one")
+	var edge := int(Items.def("copper_axe").edge)
+	for k in edge - 1:
+		inv.use_tool(c)
+	check(inv.edge_left(c) == 1 and not inv.blunt(c), "each use wears the edge")
+	check(inv.use_tool(c) == "blunt" and inv.blunt(c), "the last use leaves it blunt")
+	check(inv.slots[c].data.get("name", "").ends_with("(blunt)"), "and named so")
+	inv.sharpen(c)
+	check(inv.edge_left(c) == edge and not inv.blunt(c), "sharpening puts the edge back")
+	inv.clear()
+	inv.add("copper_hammer", 1)
+	var h: int = inv.find("copper_hammer")
+	var uses := int(Items.def("copper_hammer").uses)
+	for k in uses - 1:
+		inv.use_tag("hammer")
+	check(inv.count("copper_hammer") == 1 and inv.uses_left(h) == 1, "a copper hammer wears a use at a time")
+	check(inv.use_tag("hammer") == "worn" and inv.count("copper_hammer") == 0 and inv.count("copper_grains") == 2, "worn out, it is copper grains")
+	inv.add("iron_hammer", 1)
+	inv.use_tag("hammer")
+	check(inv.count("iron_hammer") == 1, "an iron hammer never wears")
+
+
+func test_metals() -> void:
+	var w: Node = await _new_swamp()
+	var p: Node = w.player
+	Game.inventory.clear()
+
+	# The islands' outcrops and anvil stones.
+	var outcrops: Array = get_tree().get_nodes_in_group("outcrops")
+	var anvils: Array = get_tree().get_nodes_in_group("anvils")
+	var n_out := 0
+	var n_anv := 0
+	for isl in w.terrain.islands:
+		n_out += isl.outcrops.size()
+		n_anv += isl.anvils.size()
+	check(outcrops.size() == n_out and n_out > 0, "every island has its copper outcrops (%d)" % outcrops.size())
+	check(anvils.size() == n_anv and n_anv > 0, "and its anvil stones (%d)" % anvils.size())
+	var o: Node = outcrops[0]
+	check(o.global_position.y > w.water_level(), "an outcrop stands on dry rock")
+	o.interact(p)
+	check(Game.inventory.count("copper_ore") == 0, "no ore without a copper hammer")
+	Game.inventory.add("copper_hammer", 1)
+	o.interact(p)
+	var ore: int = Game.inventory.count("copper_ore")
+	check(ore >= 3 and ore <= 5, "a copper hammer breaks out 3-5 lumps of ore (%d)" % ore)
+	check(Game.inventory.uses_left(Game.inventory.find("copper_hammer")) < int(Items.def("copper_hammer").uses), "and wears the hammer")
+	check(not o.is_ready() and Game.harvested.has(o.uid), "then it is broken out for a while")
+	var state: Dictionary = w._world_state()
+	check(state.stones.is_empty(), "an island's untouched anvil stones aren't saved: the seed makes them again")
+	var anv: Node = anvils[0]
+	anv.set_hauled(p)
+	anv.set_hauled(null)
+	check(Game.taken.has(anv.uid) and w._world_state().stones.size() == 1, "once picked up, an anvil stone is saved")
+
+	# A charcoal clamp.
+	var dry := _find_spot(w, p.global_position, func(q): return q.y > 0.3 and w.work_blocker(q) == "")
+	p.global_position = dry + Vector3(0, 0.1, 0)
+	await _frames(2)
+	var cl: Node = w.add_clamp(dry + Vector3(1.5, 0, 0), 0.0)
+	await _frames(1)
+	check(not cl.lit() and cl.prompt(p).contains("light"), "a new clamp waits to be lit")
+	Game.inventory.add("ember", 1)
+	Game.inventory.selected = Game.inventory.find("ember")
+	cl.interact(p)
+	check(cl.lit() and Game.inventory.count("ember") == 0, "an ember lights it")
+	Game.time += Clamp.BURN + 1.0
+	check(cl.done(), "a day later it has burnt through")
+	var cl_at: Vector3 = cl.global_position
+	var before := _count_near(w, "charcoal", cl_at)
+	cl.break_apart()
+	await _frames(1)
+	var got := _count_near(w, "charcoal", cl_at) - before
+	check(got >= 8 and got <= 12, "broken open, it leaves 8-12 charcoal (%d)" % got)
+
+	# A furnace, built part by part.
+	var f: Node = w.add_furnace(dry + Vector3(-1.8, 0, 0), 0.0)
+	await _frames(2)
+	check(f.built.has("ring") and f.next_part().get("id", "") == "shaft", "a new furnace site has its stone ring laid")
+	check(not "metal" in Game.tiers, "no metal recipes before a furnace is finished")
+	f.build_to(Furnace.PARTS.size())
+	await _frames(1)
+	check(f.complete() and "metal" in Game.tiers, "a finished furnace opens the metal recipes")
+	check(f.blow(p) == false and f.heat > 0.0, "a breath warms it")
+	for k in 6:
+		f.blow(p)
+	check(f.heat >= Furnace.HOT, "blowing hard brings it to full heat")
+	f.heat = 0.0
+
+	# Casting a copper axe head at it.
+	Game.inventory.clear()
+	var cast: Dictionary = Items.recipe_for("rough_copper_axe_head")
+	check(not cast.is_empty() and cast.get("at", "") == "furnace", "an axe head is cast at the furnace")
+	for id in cast.in:
+		Game.inventory.add("copper_grains" if id == "copper" else id, int(cast.in[id]) + 2)
+	for id in cast.get("tools", {}):
+		Game.inventory.add(id, 1)
+	p.global_position = f.global_position + Vector3(0, 0.05, 1.6)
+	p.focus = f
+	w.start_work()
+	var ws: Node = w.work
+	check(ws != null and ws.station == f and ws.station_kind == "furnace", "C at the furnace kneels to work at it")
+	if ws:
+		for k in Game.inventory.SIZE:
+			var sl = Game.inventory.slots[k]
+			if sl != null and sl.id in ["copper_grains", "charcoal"]:
+				ws.lay(k, 1 << 20)
+		var opt: Array = ws.options().filter(func(x): return x.recipe.out == "rough_copper_axe_head")
+		check(opt.size() == 1 and opt[0].missing.is_empty(), "copper, charcoal and the mould offer the casting (%s)" % [opt[0].missing if opt.size() == 1 else "none"])
+		if opt.size() == 1 and ws.begin(opt[0].recipe):
+			var clicks := 0
+			while not ws.recipe.is_empty() and clicks < 300:
+				ws.step()
+				clicks += 1
+			check(Game.inventory.count("rough_copper_axe_head") == 1, "every click a breath: the head is cast (%d clicks)" % clicks)
+			check(clicks > Items.recipe_steps(cast), "clicks while it is still heating don't count")
+			check(Game.copper_cast, "the first casting is remembered (for the meteor showers)")
+		w.close_work()
+	await _frames(1)
+
+	# A meteorite comes down.
+	var at: Vector3 = w.meteor_fall(Vector3.RIGHT)
+	check(at.is_finite() and at.y > w.water_level(), "a meteorite falls on dry land")
+	if at.is_finite():
+		var d := Vector2(at.x - p.global_position.x, at.z - p.global_position.z).length()
+		check(d >= 40.0 and d <= 320.0 or Game.island_safe(at), "60-300 m away, or out on an island (%d m)" % d)
+		var met: Node = null
+		for m in get_tree().get_nodes_in_group("meteorites"):
+			if m.global_position.distance_to(at) < 1.0:
+				met = m
+		check(met != null and met.buried and met.station_kind() == "", "it lies half buried")
+		check(get_tree().get_nodes_in_group("craters").size() == 1, "in a smoking crater")
+		var bits := 0
+		for dr in get_tree().get_nodes_in_group("drops"):
+			if dr.item_id == "meteoric_iron" and dr.global_position.distance_to(at) < 16.0:
+				bits += 1
+		check(bits >= 1 and bits <= 6, "with lumps of meteoric iron strewn round (%d)" % bits)
+		if met:
+			for k in HeavyStone.DIG_HITS:
+				met.dig()
+			check(not met.buried and met.station_kind() == "meteorite", "a mattock digs it out to chip at")
+			check(met.chip(0.5) == false and met.mass < 30.0, "chipping wears it down")
+		var st: Dictionary = w._world_state()
+		check(st.craters.size() == 1 and st.stones.any(func(x): return x.id == "meteorite"), "the crater and the meteorite are saved")
+
+	# The furnace and clamp are saved and come back.
+	var cl2: Node = w.add_clamp(dry + Vector3(0, 0, 2.0), 0.0)
+	cl2.lit_at = Game.time
+	var saved: Dictionary = w._world_state()
+	check(saved.furnaces.size() == 1 and saved.furnaces[0].built.size() == Furnace.PARTS.size(), "the furnace is saved")
+	check(saved.clamps.size() == 1 and saved.clamps[0].lit_at == Game.time, "a lit clamp is saved")
+	w.queue_free()
+	await _frames(2)
+
+
+func _find_spot_far(w: Node, near: Vector3, reach: float, ok: Callable) -> Vector3:
+	## _find_spot further out, on a coarser grid.
+	for r in range(0, int(reach), 6):
+		for i in 32:
+			var a := TAU * i / 32.0
+			var pos := near + Vector3(cos(a), 0, sin(a)) * r
+			pos.y = w.ground_height(pos.x, pos.z)
+			if ok.call(pos):
+				return pos
+	return Vector3.INF
+
+
+func _count_near(w: Node, id: String, at: Vector3) -> int:
+	## Items of id lying loose or piled within 3 m.
+	var n := 0
+	for dr in get_tree().get_nodes_in_group("drops"):
+		if dr.item_id == id and dr.global_position.distance_to(at) < 3.0:
+			n += int(dr.count)
+	for st in get_tree().get_nodes_in_group("stacks"):
+		if st.item_id == id and st.global_position.distance_to(at) < 3.0:
+			n += int(st.count)
+	return n
+
+
+func test_meteor_weather() -> void:
+	var w: Node = await _new_swamp()
+	var wt: Node = w.weather
+	check("day_meteors" in Weather.ALL_KINDS and not "day_meteors" in Weather.KINDS, "a daytime meteor shower is a weather kind of its own")
+	var seen := {}
+	for k in 600:
+		seen[wt.roll_day(Weather.FIRST_DAY)] = true
+	check(not seen.has("day_meteors"), "never before day 10")
+	seen.clear()
+	for k in 600:
+		seen[wt.roll_day(Weather.DAY_METEORS_FROM)] = true
+	check(seen.has("day_meteors") and seen.has("meteors"), "from day 10, both meteor showers come")
+	Game.copper_cast = true
+	wt.cast_fall_done = false
+	wt.start("day_meteors")
+	check(wt.fall_at >= 0.0 and wt.cast_fall_done, "the first shower after casting copper always drops a meteorite")
+	var dict: Dictionary = wt.to_dict()
+	check(dict.cast_fall_done and dict.kind == "day_meteors", "it is saved")
+	wt.update(wt.fall_at + 0.1)
+	check(wt.fall_at < 0.0 and get_tree().get_nodes_in_group("meteorites").size() >= 1, "and down it comes")
+	check(Weather.compass(Vector3(1, 0, -1)) == "north-east" and Weather.compass(Vector3(0, 0, 1)) == "south", "the boom's direction is named")
+	wt.stop()
+	Game.copper_cast = false
 	w.queue_free()
 	await _frames(2)

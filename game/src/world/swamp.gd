@@ -25,6 +25,13 @@ const Compost := preload("res://src/world/compost.gd")
 const Trap := preload("res://src/world/trap.gd")
 const Baitbox := preload("res://src/world/baitbox.gd")
 const Bedroll := preload("res://src/world/bedroll.gd")
+const Dock := preload("res://src/world/dock.gd")
+const Raft := preload("res://src/world/raft.gd")
+const Furnace := preload("res://src/world/furnace.gd")
+const Clamp := preload("res://src/world/clamp.gd")
+const HeavyStone := preload("res://src/world/heavy_stone.gd")
+const Outcrop := preload("res://src/world/outcrop.gd")
+const Crater := preload("res://src/world/crater.gd")
 
 var terrain: RefCounted
 var chunks := {}            # Vector2i -> chunk
@@ -62,6 +69,7 @@ const SHORE_RANGE := 100.0
 const SHORE_LIFE := [1.0, 3.0]  # days each one lies there
 const SHORE_CHERT := 0.3
 const SHORE_STICK := 0.3        # driftwood sticks stranded at the edge, in the shallows or on the bank
+const SHORE_COPPER := 0.55      # of what turns up on an island's shore: native copper
 const SHORE_SALT := 0.35        # of everything washing up: a salt crust, on dry bank
 const SHORE_ITEM_REACH := 8.0   # sticks and stones lie up to this far from open water
 const SHORE_SALT_REACH := 6.0   # salt crusts lie up to this far from the water's edge
@@ -91,6 +99,7 @@ func _ready() -> void:
 	where = "swamp"
 	_rng.seed = Game.world_seed
 	terrain = Terrain.new(Game.world_seed)
+	Game.islands = terrain.islands
 	_build_environment()
 	weather = Weather.new()
 	weather.swamp = self
@@ -107,9 +116,10 @@ func _ready() -> void:
 	if not Game.dev.has("yaw"):
 		player.rotation.y = _rng.randf() * TAU
 	_calm_until = Game.time + 300.0
-	if Game.dev.get("weather", "") in Weather.KINDS:
+	if Game.dev.get("weather", "") in Weather.ALL_KINDS:
 		weather.start(Game.dev["weather"])
 		weather.fade = 1.0
+	_spawn_islands()
 	if not restore.is_empty():
 		_apply_restore(restore)
 		return
@@ -462,10 +472,15 @@ func water_level() -> float:
 
 
 func floor_height(p: Vector3) -> float:
-	## The ground, or the floor of a house where p is up at it.
+	## The ground, or the floor of a house, a dock's deck or a raft's where p
+	## is up at it.
 	var h := ground_height(p.x, p.z)
 	for house in Game.houses:
 		h = maxf(h, house.floor_top(p))
+	for d in Game.docks:
+		h = maxf(h, d.floor_top(p))
+	for r in Game.rafts:
+		h = maxf(h, r.floor_top(p))
 	return h
 
 
@@ -598,6 +613,21 @@ func clear_waypoint() -> void:
 
 
 func _place_stash(pos: Vector3, sack := "fiber_sack") -> bool:
+	var raft := raft_under(pos)
+	if raft == null and player.riding:
+		raft = player.riding
+	if raft:
+		# Lashed to one of its four corners.
+		var spot: int = raft.free_spot(pos)
+		if spot < 0:
+			Game.notify("No room on the raft for another sack.")
+			return false
+		var rs := _add_stash(raft.to_global(Raft.SPOTS[spot]))
+		rs.set_sack(sack)
+		rs.rotation.y = raft.rotation.y
+		raft.lash_sack(rs, spot)
+		Sfx.play("pickup", -6.0)
+		return true
 	var h := floor_height(pos)
 	if h < -0.2:
 		Game.notify("The water would soak the sack. Set it down on firmer ground.")
@@ -961,7 +991,9 @@ func _process(delta: float) -> void:
 	_edge_t -= delta
 	if _edge_t <= 0.0:
 		_edge_t = 0.2
-		player_at_shore = water_point(p, STRIKE_BAND, Terrain.WATER - 0.1).is_finite()
+		# Never on a raft, a finished dock or an island (Game.safe).
+		player_at_shore = player.riding == null and not Game.safe(p) \
+				and water_point(p, STRIKE_BAND, Terrain.WATER - 0.1).is_finite()
 
 	_decay_t += delta
 	if _decay_t > 1.0:
@@ -1110,7 +1142,8 @@ func _spawn_creatures() -> void:
 				x = s.x
 				z = s.z
 				h = s.y
-		if not ok or Game.nearest_fire(Vector3(x, h, z), 25.0) or house_at(Vector3(x, h, z), 6.0):
+		if not ok or Game.nearest_fire(Vector3(x, h, z), 25.0) or house_at(Vector3(x, h, z), 6.0) \
+				or (def.get("spawn", "") == "shore" and Game.safe(Vector3(x, h, z))):
 			continue
 		var y := h
 		if def.habitat == "air":
@@ -1218,7 +1251,7 @@ func amphibian_spot(want: String, p: Vector3) -> Array:
 					pos = water
 				elif attempt == tries - 1 and _rng.randf() < 0.3:
 					water = pos
-		if water.is_finite() and not Game.nearest_fire(pos, 15.0):
+		if water.is_finite() and not Game.nearest_fire(pos, 15.0) and not Game.dock_safe(pos) and not Game.island_safe(pos):
 			return [pos, water]
 	return []
 
@@ -1252,7 +1285,7 @@ func _wash_up(p: Vector3, near: float, far: float, tries: int, until: float) -> 
 	## crust, which only forms on dry bank just above the water (most of the
 	## shore is shallows, so it looks for bank on purpose); otherwise a
 	## stick, stone or chert anywhere along the edge.
-	var salt := _rng.randf() < SHORE_SALT
+	var salt: bool = _rng.randf() < SHORE_SALT and terrain.island_at(p.x, p.z, 60.0).is_empty()
 	var spot := shore_spot(p, near, far, tries * 4, true, SHORE_SALT_REACH, SHORE_ITEM_TOP) if salt else Vector3.INF
 	if not spot.is_finite():
 		salt = false
@@ -1266,8 +1299,11 @@ func _wash_up(p: Vector3, near: float, far: float, tries: int, until: float) -> 
 		pk.global_position.y = maxf(spot.y, drawn_height(spot.x, spot.z)) + 0.005
 
 
-func _shore_kind(_spot: Vector3) -> String:
-	## Sticks wash up anywhere along the edge; stones lie anywhere.
+func _shore_kind(spot: Vector3) -> String:
+	## Sticks wash up anywhere along the edge; stones lie anywhere. Round a
+	## rocky island it is gravel: stones, and native copper (metals).
+	if not terrain.island_at(spot.x, spot.z, 12.0).is_empty():
+		return "native_copper" if _rng.randf() < SHORE_COPPER else "stone"
 	if _rng.randf() < SHORE_STICK:
 		return "stick"
 	return "flint" if _rng.randf() < SHORE_CHERT else "stone"
@@ -1572,6 +1608,10 @@ func sleep_risk(pos: Vector3) -> Dictionary:
 		feel.append("The smell of blood hangs around you.")
 	if raining:
 		feel.append("Rain is soaking everything." + (" The ground here could flood." if flood > 0.0 else ""))
+	if Game.island_safe(pos) or Game.dock_safe(pos):
+		# Nothing big lies in the water round an island or a finished dock.
+		amph = 0.0
+		feel[0] = "Nothing big lives in the water here." if Game.island_safe(pos) else "Nothing will come out of the water among the dock's spiked piles."
 	if Game.sheltered(pos):
 		# Up off the ground behind walls, under a roof.
 		amph = 0.0
@@ -1772,6 +1812,8 @@ func add_carried(id: String, pos: Vector3, yaw := 0.0) -> Node3D:
 		return add_vessel(id, pos, yaw)
 	if id == "fish_trap":
 		return add_trap(id, Vector3(pos.x, floor_height(pos), pos.z), yaw)
+	if id in ["anvil_stone", "meteorite"]:
+		return add_heavy_stone(id, pos, yaw)
 	return add_log(id, pos, yaw)
 
 
@@ -1875,7 +1917,16 @@ func house_blocker(at: Vector3, yaw: float) -> String:
 
 
 func place_blueprint(kind: String, from: Node3D) -> bool:
-	## Marks out a house site where the blueprint shows it.
+	## Marks out a house (or dock) site where the blueprint shows it.
+	if kind == "dock":
+		var ds := dock_spot(from)
+		if ds.why != "":
+			Game.notify(ds.why)
+			return false
+		add_dock(ds.at, ds.yaw)
+		Sfx.play("rustle", -4.0)
+		Game.notify("You mark out the dock. Press E at it to build it, part by part: first the land post, from a Calamites log carried here in your arms.")
+		return true
 	if kind != "softwood_house":
 		return false
 	var spot := house_spot(from)
@@ -1897,6 +1948,222 @@ func add_house(at: Vector3, yaw: float, d := {}) -> Node3D:
 		h.from_dict(d)
 	add_child(h)
 	return h
+
+
+# --- Docks and rafts --------------------------------------------------------------------
+# A Dock Blueprint held in hand shows the dock running out from the bank in
+# front of you (dock.gd). A finished dock marks out a raft (raft.gd) beside it.
+
+const DOCK_SLIDE := [1.0, 2.0, 0.0, 3.0, 4.0, -1.0, 5.0, 6.0, 8.0]   # how far ahead to try the land end
+const DOCK_TURN := [0.0, 0.2, -0.2, 0.4, -0.4]                   # and turned this much from the way you face
+
+
+func dock_spot(from: Node3D) -> Dictionary:
+	## Where a dock would go for someone standing at `from`: running out the
+	## way they face, its land end at the water's edge just ahead. It is
+	## forgiving: if that exact spot won't do, it slides the dock a few metres
+	## along and turns it a little to find one that will. {at, yaw, why}.
+	var first := {}
+	for turn in DOCK_TURN:
+		var yaw: float = from.rotation.y + turn
+		var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
+		for ahead in DOCK_SLIDE:
+			var origin: Vector3 = from.global_position + fwd * ahead
+			var at := Vector3(origin.x, water_level() + Dock.DECK_H, origin.z)
+			var why := dock_blocker(at, yaw)
+			if why == "":
+				return {"at": at, "yaw": yaw, "why": ""}
+			if first.is_empty():
+				first = {"at": at, "yaw": yaw, "why": why}
+	return first
+
+
+func dock_blocker(at: Vector3, yaw: float) -> String:
+	## Why a dock can't stand at `at` (the land end of its deck) running out
+	## along `yaw`, or "".
+	var basis := Basis(Vector3.UP, yaw)
+	var land := at + basis * Vector3(0, 0, 0.3)
+	var land_h := ground_height(land.x, land.z)
+	if land_h < water_level() - 0.4:
+		return "Start it on the bank, at the water's edge."
+	if land_h > water_level() + 1.2:
+		return "Too high: the bank here is too far above the water."
+	var far := at + basis * Vector3(0, 0, -Dock.LEN + 0.4)
+	var depth := water_level() - ground_height(far.x, far.z)
+	if depth < Dock.SHALLOW:
+		return "The water at the far end is too shallow for a raft."
+	for p in Dock.PILES + [Dock.BERTH]:
+		var g: Vector3 = at + basis * Vector3(p.x, 0, p.z)
+		var dd := water_level() - ground_height(g.x, g.z)
+		if dd > Dock.DEEP:
+			return "Too deep: the piles wouldn't reach the bottom."
+	var berth := at + basis * Vector3(Dock.BERTH.x, 0, Dock.BERTH.z)
+	if water_level() - ground_height(berth.x, berth.z) < Raft.DRAFT + 0.1:
+		return "Too shallow beside the far end to float a raft."
+	for d in Game.docks:
+		if Vector2(d.global_position.x - at.x, d.global_position.z - at.z).length() < Dock.SPACING:
+			return "Too close to the other dock."
+	for h in Game.houses:
+		if h.covers(at + basis * Vector3(0, 0, -Dock.LEN * 0.5), Dock.LEN * 0.5):
+			return "Too close to the house."
+	return ""
+
+
+func add_dock(at: Vector3, yaw: float, d := {}) -> Node3D:
+	var k := Dock.new()
+	k.world = self
+	k.position = at
+	k.rotation.y = yaw
+	if not d.is_empty():
+		k.from_dict(d)
+	add_child(k)
+	return k
+
+
+func add_raft(at: Vector3, yaw: float, d := {}) -> Node3D:
+	var r := Raft.new()
+	r.world = self
+	r.position = at
+	r.rotation.y = yaw
+	if not d.is_empty():
+		r.from_dict(d)
+	add_child(r)
+	return r
+
+
+func raft_at_dock(dock: Node3D) -> Node3D:
+	## The raft built at (or tied up at) this dock's berth, or null.
+	for r in Game.rafts:
+		if is_instance_valid(r) and not r.is_queued_for_deletion() and r.global_position.distance_to(dock.berth()) < 2.0:
+			return r
+	return null
+
+
+func raft_under(pos: Vector3) -> Node3D:
+	## The floating raft whose deck pos is over, or null.
+	for r in Game.rafts:
+		if is_instance_valid(r) and r.complete() and r.over(pos, 0.2) and absf(pos.y - r.floor_top(r.global_position)) < 1.2:
+			return r
+	return null
+
+
+func site_at(pos: Vector3, margin := 0.0) -> Node3D:
+	## A house, dock or raft (being built) whose footprint pos is within, or null.
+	var h := house_at(pos, margin)
+	if h:
+		return h
+	for d in Game.docks:
+		if d.covers(pos, margin):
+			return d
+	for r in Game.rafts:
+		if not r.complete() and r.over(pos, margin):
+			return r
+	return null
+
+
+# --- Metals ------------------------------------------------------------------------------
+# A furnace and a charcoal clamp are built by hand (work_spot._build_here); the
+# islands' copper outcrops and anvil stones are made from the world seed; a
+# meteor shower may bring a meteorite down (weather.gd, meteor_fall). See
+# metals.md.
+
+func add_furnace(at: Vector3, yaw: float, d := {}) -> Node3D:
+	## A furnace site: new ones start with the stone ring just laid.
+	var f := Furnace.new()
+	f.world = self
+	f.position = at
+	f.rotation.y = yaw
+	f.from_dict(d if not d.is_empty() else {"yaw": yaw, "built": {"ring": {"stone": 8}}})
+	add_child(f)
+	return f
+
+
+func add_clamp(at: Vector3, yaw: float, d := {}) -> Node3D:
+	var c := Clamp.new().setup(self)
+	c.position = Vector3(at.x, floor_height(at), at.z)
+	c.rotation.y = yaw
+	add_child(c)
+	if not d.is_empty():
+		c.from_dict(d)
+	return c
+
+
+func add_heavy_stone(id: String, pos: Vector3, yaw := 0.0, kg := -1.0, d := {}) -> Node3D:
+	## An anvil stone or a meteorite lying on the ground.
+	var st := HeavyStone.new().setup(id, self, kg)
+	if not d.is_empty():
+		st.from_dict(d)
+	st.position = Vector3(pos.x, floor_height(pos), pos.z)
+	st.rotation.y = yaw
+	add_child(st)
+	return st
+
+
+func add_crater(at: Vector3, made_at: float) -> Node3D:
+	var c := Crater.new()
+	c.made_at = made_at
+	c.position = at
+	add_child(c)
+	return c
+
+
+func _spawn_islands() -> void:
+	## Each island's copper outcrops, and its anvil stones until one is first
+	## picked up (then it is saved with everything else: Game.taken).
+	for i in terrain.islands.size():
+		var isl: Dictionary = terrain.islands[i]
+		for k in isl.outcrops.size():
+			var p: Vector2 = isl.outcrops[k]
+			var o := Outcrop.new().setup("copper_outcrop", "isle%d_ore%d" % [i, k])
+			o.position = Vector3(p.x, ground_height(p.x, p.y) - 0.1, p.y)
+			o.rotation.y = hash(o.uid) % 628 / 100.0
+			add_child(o)
+		for k in isl.anvils.size():
+			var uid := "isle%d_anvil%d" % [i, k]
+			if Game.taken.has(uid):
+				continue
+			var p: Vector2 = isl.anvils[k]
+			add_heavy_stone("anvil_stone", Vector3(p.x, 0, p.y), hash(uid) % 628 / 100.0, -1.0, {"uid": uid})
+
+
+func meteor_fall(dir: Vector3) -> Vector3:
+	## A meteorite comes down on dry land 60-300 m away, roughly along dir
+	## (now and then out on an island): a smoking crater with the meteorite
+	## half buried in it and lumps of meteoric iron strewn round. Where it
+	## fell, or Vector3.INF if it found nowhere dry (lost in the water).
+	var from: Vector3 = player.global_position if player else Vector3.ZERO
+	var at := Vector3.INF
+	if _rng.randf() < 0.15 and not terrain.islands.is_empty():
+		var isl: Dictionary = terrain.islands[_rng.randi() % terrain.islands.size()]
+		var a := _rng.randf() * TAU
+		var p := Vector2(isl.x, isl.z) + Vector2(cos(a), sin(a)) * float(isl.r) * _rng.randf_range(0.0, 0.35)
+		at = Vector3(p.x, ground_height(p.x, p.y), p.y)
+	else:
+		for t in 40:
+			var a := atan2(dir.z, dir.x) + _rng.randf_range(-0.6, 0.6) * (1.0 + t / 10.0)
+			var d := _rng.randf_range(60.0, 300.0)
+			var x := from.x + cos(a) * d
+			var z := from.z + sin(a) * d
+			var h := ground_height(x, z)
+			if h > water_level() + 0.25 and house_at(Vector3(x, h, z), 4.0) == null:
+				at = Vector3(x, h, z)
+				break
+	if not at.is_finite() or at.y < water_level() + 0.1:
+		return Vector3.INF
+	add_crater(at, Game.time)
+	var kg: float = [8.0, 15.0, 30.0][_rng.randi() % 3]
+	add_heavy_stone("meteorite", at, _rng.randf() * TAU, kg, {"buried": true})
+	var n := _rng.randi_range(3, 6)
+	for i in n:
+		for t in 6:
+			var a := _rng.randf() * TAU
+			var r := _rng.randf_range(3.0, 15.0)
+			var p := at + Vector3(cos(a) * r, 0, sin(a) * r)
+			p.y = ground_height(p.x, p.z)
+			if p.y > water_level():
+				spawn_pickup("meteoric_iron", 1, p + Vector3(0, 0.05, 0))
+				break
+	return at
 
 
 func house_at(pos: Vector3, margin := 0.0) -> Node3D:
@@ -1930,7 +2197,9 @@ func sleep_blocker() -> String:
 	var wait := Game.can_sleep_in()
 	if wait > 0.0:
 		return "You aren't tired enough to sleep yet (%d min)." % ceili(wait / 60.0)
-	if player.water_depth() > 0.0:
+	if player.riding and player.riding.out_on_water():
+		return "Not out on the raft. Tie it up at a dock or step ashore first."
+	if player.water_depth() > 0.0 and player.riding == null:
 		return "You can't sleep in the water."
 	if _hunted():
 		return "Not with something hunting you!"
@@ -2118,6 +2387,8 @@ func suspend_blocker() -> String:
 		return "Not while it has you in its jaws!"
 	if _sleeping:
 		return "Not while you sleep."
+	if player.riding and player.riding.out_on_water():
+		return "Not out on the raft. Tie it up at a dock or step ashore first."
 	if _hunted():
 		return "Not with something hunting you!"
 	return ""
@@ -2141,6 +2412,31 @@ func _world_state() -> Dictionary:
 	for h in Game.houses:
 		if not h.is_queued_for_deletion():
 			houses.append(h.to_dict())
+	var docks := []
+	for d in Game.docks:
+		if not d.is_queued_for_deletion():
+			docks.append(d.to_dict())
+	var rafts := []
+	for r in Game.rafts:
+		if not r.is_queued_for_deletion():
+			rafts.append(r.to_dict())
+	var furnaces := []
+	for f in get_tree().get_nodes_in_group("furnaces"):
+		if not f.is_queued_for_deletion():
+			furnaces.append(f.to_dict())
+	var clamps := []
+	for c in get_tree().get_nodes_in_group("clamps"):
+		if not c.is_queued_for_deletion():
+			clamps.append(c.to_dict())
+	var stones := []
+	for g in ["anvils", "meteorites"]:
+		for st in get_tree().get_nodes_in_group(g):
+			if not st.is_queued_for_deletion() and (st.uid == "" or Game.taken.has(st.uid)):
+				stones.append(st.to_dict())  # an island's anvil stone untouched is made again from the seed
+	var craters := []
+	for c in get_tree().get_nodes_in_group("craters"):
+		if not c.is_queued_for_deletion() and c.smoking():
+			craters.append(c.to_dict())
 	var stashes := []
 	for s in get_tree().get_nodes_in_group("stashes"):
 		if not s.is_queued_for_deletion():
@@ -2204,6 +2500,12 @@ func _world_state() -> Dictionary:
 		"vitals": player.vitals.to_dict(),
 		"fires": fires,
 		"houses": houses,
+		"docks": docks,
+		"rafts": rafts,
+		"furnaces": furnaces,
+		"clamps": clamps,
+		"stones": stones,
+		"craters": craters,
 		"stashes": stashes,
 		"composters": composters,
 		"bedrolls": bedrolls,
@@ -2239,6 +2541,11 @@ func _apply_restore(r: Dictionary) -> void:
 	for d in r.get("houses", []):
 		# First, so what was left on their floors goes back up there.
 		add_house(Vector3(d.pos[0], d.pos[1], d.pos[2]), float(d.get("yaw", 0.0)), d)
+	for d in r.get("docks", []):
+		add_dock(Vector3(d.pos[0], d.pos[1], d.pos[2]), float(d.get("yaw", 0.0)), d)
+	for d in r.get("rafts", []):
+		# Before the logs and sacks that rode on them, which it takes back on.
+		add_raft(Vector3(d.pos[0], d.pos[1], d.pos[2]), float(d.get("yaw", 0.0)), d)
 	for f in r.fires:
 		_add_fire(Vector3(f.pos[0], f.pos[1], f.pos[2]), float(f.fuel), false).from_dict(f)
 	for sd in r.get("stashes", []):
@@ -2270,6 +2577,15 @@ func _apply_restore(r: Dictionary) -> void:
 	for d in r.get("logs", []):
 		if Items.exists(d.get("id", "")):
 			add_log(d.id, Vector3(d.pos[0], d.pos[1], d.pos[2]), 0.0).from_dict(d)
+	for d in r.get("furnaces", []):
+		add_furnace(Vector3(d.pos[0], d.pos[1], d.pos[2]), float(d.get("yaw", 0.0)), d)
+	for d in r.get("clamps", []):
+		add_clamp(Vector3(d.pos[0], d.pos[1], d.pos[2]), float(d.get("yaw", 0.0)), d)
+	for d in r.get("stones", []):
+		if String(d.get("id", "")) in ["anvil_stone", "meteorite"]:
+			add_heavy_stone(d.id, Vector3(d.pos[0], d.pos[1], d.pos[2]), float(d.get("yaw", 0.0)), float(d.get("mass", -1.0)), d)
+	for d in r.get("craters", []):
+		add_crater(Vector3(d.pos[0], d.pos[1], d.pos[2]), float(d.get("made_at", 0.0)))
 	for d in r.get("felled_trees", []):
 		if Chunk.TREES.has(d.get("kind", "")):
 			add_felled(d.kind, float(d.s), float(d.lo), Vector3(d.dir[0], 0, d.dir[1]),

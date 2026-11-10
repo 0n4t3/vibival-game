@@ -304,6 +304,8 @@ var _ripple_age: Array[float] = []
 var _ripple_t := 0.0
 var hooked_by: Node = null       # a fish: the line it is on (fishing.gd)
 var out_of_water := 0.0          # a fish: seconds it has been on land
+var _raft: Node3D = null         # big amphibians: the raft whose corner it has in its jaws (raft.gd)
+var _raft_corner := 0
 var snared: Node3D = null        # caught in a snare (trap.gd): it can't get away
 
 static var _part_cache := {}
@@ -855,8 +857,14 @@ func _process(delta: float) -> void:
 		_blown_away(delta)
 		return
 
-	# A debug world can make every animal leave the player alone.
-	var quarry: Node3D = player if Game.hostile() and not Game.sheltered(player.global_position) else null
+	if state == "raft_bite":
+		_hold_raft_bite(delta)
+		return
+	# A debug world can make every animal leave the player alone. Nothing
+	# comes for you in a house, on a finished dock or in an island's safe
+	# water; out on a raft the danger is a bite on its corner (raft.gd).
+	var quarry: Node3D = player if player and Game.hostile() and not Game.safe(player.global_position) \
+			and player.get("riding") == null else null
 	if drawn and _think_drawn(quarry, dist, delta):
 		return
 	match def.behavior:
@@ -1180,6 +1188,52 @@ func _leash_ok(p: Vector3) -> bool:
 		return Vector2(p.x - home.x, p.z - home.z).length() < def.leash \
 				+ (10.0 if _prey or _provoked > 0.0 or state in ["strike", "stalk"] else 0.0)
 	return _ground(p.x, p.z) < 1.2 and Vector2(p.x - water_home.x, p.z - water_home.z).length() < def.leash
+
+
+func start_raft_bite(raft: Node3D, corner: int) -> void:
+	## Jaws clamped on a corner of a raft: it holds on there, up at the
+	## surface, until it is struck or the raft goes over.
+	_raft = raft
+	_raft_corner = corner
+	_stop_feeding_guts()
+	_prey = null
+	state = "raft_bite"
+	submerged = false
+	_body.visible = true
+	_hold_raft_bite(1.0)
+
+
+func end_raft_bite(struck: bool) -> void:
+	_raft = null
+	if state != "raft_bite":
+		return
+	state = "retreat" if def.behavior == "lurker" else "return"
+	if mode != "land":
+		mode = "hide" if def.behavior == "ambusher" else "lurk"
+	if def.behavior == "ambusher":
+		home = Vector3(global_position.x, _ground(global_position.x, global_position.z), global_position.z)
+	_calm = 90.0 if struck else 30.0
+	if struck:
+		Sfx.play_at("croak", global_position, 4.0)
+
+
+func _hold_raft_bite(delta: float) -> void:
+	if _raft == null or not is_instance_valid(_raft) or _raft.is_queued_for_deletion():
+		end_raft_bite(false)
+		return
+	var c: Vector3 = _raft.corner_global(_raft_corner)
+	var out := c - _raft.global_position
+	out.y = 0.0
+	out = out.normalized() if out.length() > 0.01 else Vector3.FORWARD
+	var at := c + out * (hit_radius + 0.6)
+	global_position = Vector3(at.x, c.y - 0.3, at.z)
+	_face(c, 1.0)
+	_body.rotation.z = sin(Time.get_ticks_msec() * 0.016) * 0.12
+	_gape = 0.2
+	if _jaw:
+		_jaw.rotation.x = _gape * 0.9
+	_animate(0.0, delta)
+	_update_ripples(delta)
 
 
 func attack_now(player: Node3D) -> void:
@@ -2110,9 +2164,15 @@ func take_damage(amount: float, attacker: Node3D) -> void:
 		return
 	hp -= amount
 	_anger = 25.0
+	var let_go := false
+	if state == "raft_bite" and _raft and is_instance_valid(_raft):
+		let_go = true
+		_raft.bite_hit(self)  # struck in time: it lets go
 	if hp <= 0.0:
 		_die(attacker)
 		return
+	if let_go:
+		return  # it sinks away rather than turning on you
 	match def.behavior:
 		"prey":
 			state = "flee"
