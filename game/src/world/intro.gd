@@ -44,6 +44,13 @@ func setup(s: Node) -> Node:
 func _ready() -> void:
 	player.frozen = true
 	player.lie = 1.0
+	# On your back from the very first frame, under the white of the flash:
+	# never a glimpse of standing before you are down.
+	player.head.position.y = 0.3
+	player._pitch = 1.45
+	player.head.rotation.x = player._pitch
+	if swamp.hud and swamp.hud.has_method("set_fade"):
+		swamp.hud.set_fade(Color(1, 1, 1, 1))
 	tree = swamp.nearest_soft_tree(player.global_position, STRIKE_RANGE)
 	_yaw0 = player.rotation.y
 	_face = _yaw0

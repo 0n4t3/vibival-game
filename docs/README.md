@@ -13,11 +13,12 @@ does.
   weather.
 - [Gathering and crafting](crafting.md): what to collect, crafting on the
   ground, piles, woodcutting and logs, the recipe book, knapping stone tools,
-  fire, cooking, torches, the mattock, pottery, the workbench and soup.
+  fire, cooking, torches, the mattock, pottery, the workbench, fishing,
+  traps and the bait box, the house, and soup.
 - [Creatures](creatures.md): every animal in the swamp, what it does, and how
   to deal with it, including how to get water without being eaten.
-- [Sleeping and saving](sleeping-and-saving.md): sleep risk, camp saves, save
-  and quit, named worlds, and debug worlds.
+- [Sleeping and saving](sleeping-and-saving.md): sleep risk, the bedroll,
+  camp saves, save and quit, named worlds, and debug worlds.
 - [Stashes and waypoints](stashes-and-waypoints.md): leaving a sack of
   supplies on the ground, and marking a spot to find your way back.
 

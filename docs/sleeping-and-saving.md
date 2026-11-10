@@ -22,16 +22,32 @@ little.
 If something attacks during the night, you wake partway through it. Fight it
 off or get away, and survive 30 seconds.
 
+### The bedroll
+
+A **Bedroll** is woven by hand from 8 string (8 steps) once you have a
+spindle. It is for a finished house: right-click (Use) to set it down on
+the floor of the room, not on the porch and not right beside the fireplace.
+Look at it and:
+
+- press **Z** to lie down at once (no second press), when you are tired and
+  nothing stops you sleeping. Asleep on a bedroll, you heal half as fast
+  again as sleeping rough: blood, sickness, venom and wounds.
+- press **E** to save the game without sleeping, unless something is hunting
+  you.
+- right-click to roll it up and put it back in your bag.
+
+If the house is torn down, the bedroll is left on the ground.
+
 ## Saving
 
 Vibival has two kinds of save, and each world keeps its own.
 
 ### The camp save
 
-The game saves when you **sleep through a night**, once per night (or when you
-survive 30 seconds after an attack woke you). Daytime naps don't save. When
-you die you can **wake at your last camp**, back where you last slept through
-the night.
+The game saves **every time you sleep**, a daytime nap as well as a night's
+sleep (after an attack wakes you, once you have survived 30 seconds). A
+[bedroll](#the-bedroll) also saves without sleeping. When you die you can
+**wake at your last camp**, back where you last slept.
 
 ### Save and quit
 

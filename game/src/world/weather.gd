@@ -24,6 +24,12 @@ const START_TEXT := {
 	"wind": "The wind picks up, roaring through the trees.",
 	"smoke": "The air turns hazy and red. Somewhere, the forest is burning.",
 }
+# A night-sky event shows faintly from the start of dusk (DUSK_START), before
+# it begins in the dark: a hint of what is coming.
+const HINT_TEXT := {
+	"aurora": "You see faint shimmers in the sky, and wonder if they'll get brighter after sunset.",
+	"meteors": "You see faint streaks of light in the sky, and wonder if they'll be more visible after sunset.",
+}
 const END_TEXT := {
 	"fog": "The fog thins and lifts.",
 	"thunderstorm": "The storm moves on.",
@@ -34,7 +40,8 @@ const FIRST_DAY := 2         # Game.day() is 0-based: day 3
 const CHANCE := 0.2          # of an event on any one day
 const LENGTH := [360.0, 720.0]
 const FADE := 30.0           # seconds to come and go
-const NIGHT_START := 1260.0  # clock: dusk (solar 0.8)
+const DUSK_START := 1140.0   # clock: dusk begins (solar 0.7), when HINT_TEXT shows
+const NIGHT_START := 1260.0  # clock: full dark (solar 0.8), when night-sky events begin
 const NIGHT_END := 180.0     # clock: dawn (solar 0.2), the next day
 const WIND_SPEED := [11.0, 16.0]
 
@@ -44,6 +51,7 @@ var left := 0.0         # seconds until it is over
 var planned := ""       # today's event, still to come
 var planned_at := 0.0   # Game.time it begins
 var planned_len := 0.0
+var hinted := false     # the dusk hint of tonight's night-sky event is given
 var rolled_day := -1
 var fade := 0.0         # 0..1: how far it has come in (or gone)
 var flash := 0.0        # lightning, 0..1
@@ -128,6 +136,7 @@ func plan(k: String, day: int) -> void:
 	## Picks when today's event happens: night-sky events from dusk until dawn,
 	## the others for 6-12 minutes at a random time of the day still to come.
 	planned = k
+	hinted = false
 	if k in NIGHT_KINDS:
 		planned_at = day_start(day) + NIGHT_START
 		planned_len = Game.DAY_LENGTH - NIGHT_START + NIGHT_END
@@ -190,6 +199,9 @@ func update(delta: float) -> void:
 			var k := roll_day(day)
 			if k != "":
 				plan(k, day)
+	if planned in HINT_TEXT and not hinted and Game.time >= planned_at - (NIGHT_START - DUSK_START) and Game.time < planned_at:
+		hinted = true
+		Game.notify(HINT_TEXT[planned])
 	if planned != "" and Game.time >= planned_at:
 		var late := Game.time - planned_at
 		var k := planned
@@ -479,7 +491,7 @@ func apply_sky(env: Environment, sky: ProceduralSkyMaterial, sun: DirectionalLig
 func to_dict() -> Dictionary:
 	return {
 		"kind": kind, "left": left, "planned": planned, "planned_at": planned_at,
-		"planned_len": planned_len, "rolled_day": rolled_day,
+		"planned_len": planned_len, "rolled_day": rolled_day, "hinted": hinted,
 		"wind_dir": [wind_dir.x, wind_dir.z], "wind_speed": wind_speed,
 	}
 
@@ -488,6 +500,7 @@ func from_dict(d: Dictionary) -> void:
 	planned = String(d.get("planned", ""))
 	planned_at = float(d.get("planned_at", 0.0))
 	planned_len = float(d.get("planned_len", 0.0))
+	hinted = bool(d.get("hinted", false))
 	rolled_day = int(d.get("rolled_day", -1))
 	var k := String(d.get("kind", ""))
 	if k in KINDS:

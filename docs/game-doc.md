@@ -139,7 +139,9 @@ after sunrise. `Game.day()`, `is_night()`, `time_of_day()` (solar fraction,
 `_ready` for a new run (no `restore`) adds an `Intro` node, which:
 freezes the player with `player.lie` = 1 (eyes at 0.3 m, pitch 1.45 rad: on
 your back looking up; `player._process` applies `lie` after the usual head
-updates); first of all, at `STRIKE_AT` (0.05 s), sets the HUD fade to white
+updates). `_ready` also sets the head and the HUD's white fade itself, so
+the very first frame is already on your back under the flash, never a
+glimpse of standing. First of all, at `STRIKE_AT` (0.05 s), sets the HUD fade to white
 and fades it out over `WHITE_TIME` (3 s, easing in), calls `weather.strike`
 at the treetop with a `BOLT_TIME` (2.2 s) life (a bolt that long stops
 flickering after 0.5 s and fades out instead) and `swamp.strike_tree` on
@@ -291,8 +293,9 @@ and pressure with `start_pressure(wound)` (`stop_pressure`, `pressure_left`).
 `ITEMS` maps an id to a dictionary; the header comment lists every field.
 The important ones:
 
-- `w` weight (kg), `stack`, `shape` (mesh family in `Assets._item_mesh`),
-  `color`.
+- `w` weight (kg), `shape` (mesh family in `Assets._item_mesh`), `color`.
+  (`stack` is still on many items but no longer read: stacks have no size
+  limit, see Inventory.)
 - Food: `energy`, `protein`, `greens`, `starch`, `water`, `sick` (chance of
   sickness when eaten), `decay` (seconds before it spoils), `spoil` (what it
   turns into, `"rotten"` by default; `""` leaves nothing), `goes_out` (it
@@ -337,7 +340,11 @@ Dictionary that overrides the item's fields for that item
 (`inventory.def_of(i)`). Items with `data` never stack or merge, can't be
 laid out to craft with, and keep it through `add`/`take` (extra `data`
 argument), moves between bag and stash, drops (`pile_item` and
-`spawn_pickup` take `data`; `pickup.gd` saves it) and saves. A stack keeps
+`spawn_pickup` take `data`; `pickup.gd` saves it) and saves. Stacks have
+no size limit (`Items.max_stack` is `UNLIMITED`): weight alone limits what
+you carry. Fresh tools stack; a worn one (`uses_data`) has data, so it
+leaves the stack for a slot of its own (`replace` on a stack splits one off,
+so an emptied pot or a worn pencil goes elsewhere). A stack keeps
 the age of its oldest item: `add` and a merge in `inventory_ui` take the
 larger age, and so do piles (`work_spot._add_pile`), so a fresh item added
 never makes the rest look fresher. Weight, not slots, limits what you carry: 8 kg in your arms,
@@ -553,13 +560,17 @@ meat into rotten food), `grub`, `rotten`, `guts`. Item shapes `rod`,
 per bait-tagged pile laid beside a laid fishing rod (`in` the rod and that
 bait, `bait` its id), or one missing "some bait". `_finish` gives the rod back
 with `Items.bait_data(bait)` (`{"bait", "name": "Fishing Rod (…)"}`). A rod
-with data can't be laid out, so a baited rod can't be baited again.
+with data can't be laid out, so a baited rod can't be baited again:
+`work_spot.lay` says "This rod is already baited." (other data: "Keep the
+… in your bag.").
 
 **Fishing** (`src/world/fishing.gd`, `player.fishing`). Use with a held
 `fishing` item: with a line out, `reel()`; otherwise `player.cast_rod()`,
 which refuses without `data.bait` (naming the craft button with
 `Settings.button_name`: keyboard, gamepad (`using_pad`, set by the last
-input) or touch), else casts with a thrown stone's velocity. The line
+input) or touch), else casts with a thrown stone's velocity. While the line is out the held
+rod is drawn as the bare `rod_blank` (`player._held_cast`), since the line
+draws its own hook and line from `rod_tip()`. The line
 (top-level node) flies the hook with the same gravity, wind drag and steps as
 `thrown_rock.gd`; into water it is "waiting" (a ripple, no lure), on land or
 against a trunk "ground". `line_len` starts at the level distance; you can
@@ -897,6 +908,36 @@ durability bar for the measures left (`Inventory.durability`, drawn by
 `Icons.draw_durability` in the hotbar, bag and stash slots, above the
 freshness bar).
 
+### Preserving pots (`src/core/preserves.gd`)
+
+- **Items**: `pot_preserves` (open; shape `pot_water`) and `pot_sealed`
+  (shape `pot_capped`), both `preserves`. Everything is in the slot's
+  `data`: `items` [{id, age}], `fluid`, `w` (weight: `Preserves.weight_of`,
+  pot + `SERVING_W` 1.5 + food). An open pot's data also has `since`
+  (Game.time it was filled), `name` and `desc` (`listing`). A sealed pot
+  has none of those three, so it shows only the item's own name and
+  description.
+- **Filling**: the vessel window (`inventory_ui._add_pot_section`, with an
+  empty `pot` in the bag) picks 1–`MAX` (4) of
+  `FermentVessel.preserved_indices()` into `_pot_pick`. "Fill the pot"
+  calls `fill_pot_from`, which calls `FermentVessel.fill_pot(ks)`:
+  - It takes the items (`take`, so salting takes a measure of salt each)
+    and one serving of `water`.
+  - It refuses a rancid or dirty vessel, unpreserved food, more than `MAX`,
+    or a draw that would leave more food than liquid.
+  - The fluid is `Preserves.FLUIDS[mode()]`.
+- **Sealing**: `Preserves.seal(inv, i)` takes a `wooden_cap` and a `wax`. It
+  ages the food by the time since `since`, and drops `since`, `name` and
+  `desc`.
+- **Opening**: `Preserves.open(inv, i)` (`player.use_preserves`, Use or the
+  bag's Seal/Open buttons) leaves a `pot` in the slot. It adds the food with
+  its ages brought up to now (`contents`), plus the cap from a sealed pot;
+  what doesn't fit is spawned at `drop_point`.
+- **Weight**: `Items.slot_weight(s)` is a slot's per-item weight, with
+  `data.w` over the item's own. It's used by `Inventory.weight`,
+  `room_for(id, data)` and the bag's swap and weight readouts.
+- `wooden_cap`: 4 from a board at a bench (`woodworking_tools` rack).
+
 ## Soup pots (`src/world/soup_pot.gd`)
 
 Recipe `soup_pot_unfired`: bench tier, `rack` "clay_platter", 10 clay and 3
@@ -980,7 +1021,11 @@ already within striking reach are left alone: they strike as usual.
 `any_raw_meat`, 4 steps) is a `throw` item with `frenzy` 30 s. It has raw
 meat's `decay` (900 s) and spoils into `baitbox_rotten` (`frenzy` 15 s). A
 crafted one starts fresh, like meat bait; a thrown one keeps its age
-(`ThrownRock.age`).
+(`ThrownRock.age`). It looks like a little wooden cage (`Assets.baitbox`,
+`BAITBOX_W` 0.24 × `BAITBOX_H` 0.14 m): a base board, corner posts, two
+upright bars and a rail a side, a slatted lid tied down at two corners, the
+meat showing between the bars; `done` stages it for the bench (base, then
+the posts and bars side by side, then the meat and lid).
 
 Thrown (`thrown_rock.gd`), it hurts nothing it hits. If it comes down in
 water (ground below `water_level()`) it makes rings (`ripple`, not a
@@ -994,9 +1039,17 @@ time left (`_frenzy_at`, `_frenzy_left`), so an amphibian that
 `frenzy()` takes any ambusher or lurker within `FRENZY_RADIUS` (65 m), except
 one with hold of the player (`grab`) or an ambusher carrying a kill (`feed`).
 It drops guts it was `drawn` to and any prey or blood scent. The ambusher's
-`home` (mode `hide`) or the lurker's `water_home` and `home` (mode kept, so
-one roaming on land can cross any ground) move to the box, and it enters
-state `"frenzy"` (surfaced, visible; 35% roar). It races there (ambusher
+`home` (mode `hide`) or the lurker's `water_home` and `home` move to the box,
+and it enters state `"frenzy"` (surfaced, visible; 35% roar). It comes only
+through the water: `_water_path(from, to)` is a breadth-first search over a
+`PATH_CELL` (2 m) grid round the two (24 m margin) of cells whose ground is
+under `water_level()` (`_wet`), straightened where a straight line stays wet
+(`_water_line`, sampled every metre), and kept in `_frenzy_path`. One out of
+the water, or cut off from the box by land, gets an empty path and takes no
+notice. `_frenzy_goal` follows the waypoints, then the lunge spots, which
+are only picked in the water; in `"frenzy"`, `_steer` never steps from
+water onto land (it slides along the shore, trying turns of ±0.5, ±1 and
+±1.5 rad). It races there (ambusher
 0.8 × `run`, lurker `run`) until within `radius` + 6 m, then lunges at random
 spots round the box (`_pick_frenzy_spot`: `radius` × 0.5 to `radius` + 3 m,
 a new one every 0.5–1.5 s), rolling, snapping and now and then splashing
@@ -1449,6 +1502,8 @@ is added to another category, the code needs to change to match:
 ### Grabs and the escape roll (`player.gd`)
 
 Amphibians grab the player (bite, then health per second in the jaws).
+Their heads face −Z, so the lower jaw (`_jaw`) opens with a negative X
+turn (`-_gape * 0.9`); a positive one swings it up through the skull.
 Stabbing builds up a grip break for Eogyrinus. Uranocentrodon instead rolls
 once it reaches deep water or after `ROLL_TIME`: `ESCAPE_BASE` 10% plus the
 best strike landed while held (`ESCAPE_BONUS`: bare +15%, stone +30%,
@@ -1491,6 +1546,11 @@ A `frenzy` item (baitbox) is different: see "Baitbox".
     (`creature.blow_away`).
   - Meteors are additive streaks from a radiant; the aurora is a curtain
     mesh; the bright moon is a quad. Smoke adds drifting ash.
+  - A planned `aurora` or `meteors` hints at itself at `DUSK_START` (clock
+    1140, solar 0.7), `NIGHT_START` − `DUSK_START` before it begins: once
+    (`hinted`, reset by `plan`, saved) it notifies `HINT_TEXT` ("You see
+    faint shimmers in the sky…" / "faint streaks of light…"), then
+    `START_TEXT` when it starts in the dark at `NIGHT_START`.
   - Saved in `_world_state` → `"events"` (`to_dict` / `from_dict`).
 - **Sleep risk** (`swamp.sleep_risk`): amphibian attack chance by distance to
   water (95% within 10 m, none past 30 m), predators (higher at night, cut by
@@ -1559,7 +1619,9 @@ A `frenzy` item (baitbox) is different: see "Baitbox".
   view's instructions and how-texts, the tray line, the inventory's hint,
   item descriptions and the recipe book use it too.
 - **Tab menu** (`inventory_ui.gd`), three tabs:
-  - *Inventory*: the grid, item info, Eat/Drink, Treat wound, **Drop** (kept)
+  - *Inventory*: the grid, item info (the description label is a fixed
+    `DESC_LINES` (10) tall and clips, so a long description doesn't make the
+    centred menu jump), Eat/Drink, Treat wound, **Drop** (kept)
     and **Discard** (gone on reload), a short condition line, and Rest
     (sleep from here, with the spot's risk).
   - *Health*: the summary, condition bars, vitals and nutrients, what to do

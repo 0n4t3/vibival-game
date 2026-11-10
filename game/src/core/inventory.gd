@@ -35,7 +35,7 @@ func weight() -> float:
 	var total := 0.0
 	for s in slots:
 		if s != null:
-			total += Items.weight(s.id) * s.n
+			total += Items.slot_weight(s) * s.n
 	return total
 
 
@@ -61,9 +61,9 @@ func load_ratio() -> float:
 	return weight() / capacity()
 
 
-func room_for(id: String) -> int:
-	## How many more of `id` fit under the overload limit.
-	var w := Items.weight(id)
+func room_for(id: String, data := {}) -> int:
+	## How many more of `id` (with slot `data`) fit under the overload limit.
+	var w := Items.slot_weight({"id": id, "data": data})
 	if w <= 0.0:
 		return 1 << 20
 	return maxi(floori((capacity() * overload - weight()) / w + 0.0001), 0)
@@ -76,7 +76,7 @@ func add(id: String, n := 1, age := 0.0, force := false, data := {}) -> int:
 	## Items with `data` each take a slot of their own.
 	var rejected := 0
 	if not force:
-		var fit := mini(n, room_for(id))
+		var fit := mini(n, room_for(id, data))
 		rejected = n - fit
 		n = fit
 	var max_n := 1 if not data.is_empty() else Items.max_stack(id)

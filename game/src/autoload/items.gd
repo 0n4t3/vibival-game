@@ -252,7 +252,7 @@ const ITEMS := {
 	# Thrown into the water, a baitbox sends every Uranocentrodon and Eogyrinus
 	# within Creature.FRENZY_RADIUS into a feeding frenzy round it for `frenzy`
 	# seconds (swamp.start_frenzy). On land it is just dropped.
-	"baitbox": {"name": "Baitbox", "desc": "A little open box of board packed with raw meat. Throw it (Use) into the water and every big amphibian for a long way round rushes to it and tears at it for half a minute, ignoring you unless you come too close. It goes off like raw meat.", "stack": 3, "w": 1.6,
+	"baitbox": {"name": "Baitbox", "desc": "A little wooden cage of board strips packed with raw meat. Throw it (Use) into the water and every big amphibian for a long way round rushes to it and tears at it for half a minute, ignoring you unless you come too close. It goes off like raw meat.", "stack": 3, "w": 1.6,
 		"color": Color(0.62, 0.48, 0.30), "shape": "baitbox", "throw": true, "frenzy": 30.0, "decay": 900.0, "spoil": "baitbox_rotten"},
 	"baitbox_rotten": {"name": "Rotten Baitbox", "desc": "A baitbox whose meat has gone off. Thrown into the water it still draws the big amphibians, but they lose interest in half the time.", "stack": 3, "w": 1.5,
 		"color": Color(0.45, 0.40, 0.28), "shape": "baitbox", "throw": true, "frenzy": 15.0},
@@ -313,6 +313,16 @@ const ITEMS := {
 		"cook": "pot_clean", "cook_time": 48.0, "empty": "pot"},
 	"pot_clean": {"name": "Pot of Boiled Water", "desc": "Safe to drink, or to wash out wounds (Treat).", "stack": 1, "w": 3.0,
 		"color": Color(0.45, 0.65, 0.80), "shape": "pot_water", "water": 40.0, "empty": "pot", "treat": "clean", "as": "pot_dirty"},
+	# Preserving pots (see core/preserves.gd): a clay pot filled at a
+	# fermentation vessel with 1-4 preserved items and a serving of its liquid,
+	# the lot in the slot's data (and its weight, `w`). Sealed with a wooden
+	# cap and wax, nothing in it ages, and it no longer shows what it holds.
+	"pot_preserves": {"name": "Pot of Preserves", "desc": "An open clay pot of preserved food in its liquid.", "stack": 1, "w": 3.0,
+		"color": Color(0.72, 0.70, 0.48), "shape": "pot_water", "preserves": true},
+	"pot_sealed": {"name": "Sealed Pot", "desc": "A clay pot with a wooden cap waxed down over its mouth. You can't see what is inside. Nothing in it spoils while it stays sealed. Open it (Use) to take everything out: the cap comes back, the wax doesn't.", "stack": 1, "w": 3.0,
+		"color": Color(0.70, 0.42, 0.28), "shape": "pot_capped", "preserves": true},
+	"wooden_cap": {"name": "Wooden Cap", "desc": "A round wooden cap carved to fit a clay pot's mouth. With a lump of wax it seals a pot of preserves, and comes back when the pot is opened.", "stack": 1, "w": 0.1,
+		"color": Color(0.62, 0.47, 0.30), "shape": "pot_cap"},
 	# Soup: a soup pot is carried and hangs over a fire (see soup_pot.gd); a
 	# clay pot scoops one serving out of it. A Pot of Soup's values are its
 	# serving's, kept in its slot's `data`; the ones here are a stand-in.
@@ -632,6 +642,9 @@ const RECIPES := [
 	{"out": "vessel_sealed_unfired", "n": 1, "in": {"clay": 10}, "where": "swamp", "tier": "bench", "rack": "clay_platter",
 		"cat": "Containers", "act": "steps", "steps": 7, "verb": "Coil a sealed vessel",
 		"how": "Click around the rim to coil a big jar with a narrow neck up on the platter, then press out a lid to fit it. It is left beside the bench: set it in a lit campfire to fire it."},
+	{"out": "wooden_cap", "n": 4, "in": {"board": 1}, "where": "swamp", "tier": "bench", "rack": "woodworking_tools",
+		"cat": "Containers", "act": "steps", "steps": 4, "verb": "Carve wooden caps",
+		"how": "Click the glowing spots to saw four rounds from the board and carve each into a cap with a lip that fits a clay pot's mouth."},
 	{"out": "canteen", "n": 1, "in": {"board": 1, "wax": 2, "cordage": 1}, "where": "swamp", "tier": "bench", "rack": "woodworking_tools",
 		"cat": "Containers", "act": "steps", "steps": 6, "verb": "Carve a canteen",
 		"how": "Click the glowing spots to cut a jointed length, hollow it out, seal the inside with wax, carve and fit a wooden lid, then tie on a cord."},
@@ -862,12 +875,25 @@ func item_name(id: String) -> String:
 	return def(id).get("name", id)
 
 
-func max_stack(id: String) -> int:
-	return def(id).get("stack", 1)
+const UNLIMITED := 1 << 30
+
+
+func max_stack(_id: String) -> int:
+	## Stacks have no size limit: what you can carry is governed by weight.
+	## (An item's old "stack" field is no longer read.) Items with data of
+	## their own, a worn tool or a pot of soup, still keep a slot each.
+	return UNLIMITED
 
 
 func weight(id: String) -> float:
 	return def(id).get("w", 0.2)
+
+
+func slot_weight(s: Dictionary) -> float:
+	## One of a slot's items: its own data's weight (a filled preserving pot)
+	## over the item's.
+	var d: Dictionary = s.get("data", {})
+	return float(d.w) if d.has("w") else weight(s.id)
 
 
 func counts_as(id: String, want: String) -> bool:

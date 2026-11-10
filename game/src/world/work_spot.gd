@@ -175,7 +175,10 @@ func lay(i: int, n := 1) -> int:
 	if s == null:
 		return 0
 	if s.has("data"):
-		Game.notify("Keep the %s in your bag." % Items.item_name(s.id).to_lower())
+		if s.data.has("bait"):
+			Game.notify("This rod is already baited.")
+		else:
+			Game.notify("Keep the %s in your bag." % Items.item_name(s.id).to_lower())
 		return 0
 	var p := _pile_of(s.id)
 	if p < 0 and piles.size() >= piles_layout().size():

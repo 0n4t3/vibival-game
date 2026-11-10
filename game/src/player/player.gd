@@ -9,6 +9,7 @@ signal escape_rolled(chance: float, roll: float, freed: bool)
 
 const Survival := preload("res://src/core/survival.gd")
 const Inventory := preload("res://src/core/inventory.gd")
+const Preserves := preload("res://src/core/preserves.gd")
 const ThrownRock := preload("res://src/world/thrown_rock.gd")
 const Fishing := preload("res://src/world/fishing.gd")
 const House := preload("res://src/world/house.gd")
@@ -80,6 +81,7 @@ var _step_dist := 0.0
 var _shake := 0.0
 var _bob := 0.0
 var _held_id := "~"
+var _held_cast := false   # the held rod is cast: shown without its line and hook
 var _press_t := 0.0             # seconds you have held pressure on a wound
 var _air_top := -INF            # highest point since you left the ground
 var next_injury := -1.0         # tests: force the next fracture or fall roll (0..1)
@@ -370,8 +372,9 @@ func _process(delta: float) -> void:
 	_swing = minf(_swing + delta * 3.2, 1.0)
 	_shake = maxf(_shake - delta * 2.5, 0.0)
 	var held: String = Game.inventory.held_id()
-	if held != _held_id:
+	if held != _held_id or (fishing != null) != _held_cast:
 		_held_id = held
+		_held_cast = fishing != null
 		_update_held_mesh()
 		Game.learn_tool(held)  # a rack tool in hand: its recipes go in the book
 	_update_torch(delta)
@@ -488,6 +491,10 @@ func _update_held_mesh() -> void:
 		return
 	held_mesh.mesh = Assets.mesh("item_" + _held_id)
 	var shape: String = Items.def(_held_id).get("shape", "")
+	if shape == "fishing_rod" and _held_cast:
+		# Cast: the line and hook are out on the water (fishing.gd), so the
+		# rod in hand is bare.
+		held_mesh.mesh = Assets.mesh("item_rod_blank")
 	held_mesh.rotation = Vector3.ZERO
 	held_mesh.position = Vector3.ZERO
 	held_mesh.scale = Vector3.ONE
@@ -663,6 +670,9 @@ func _use_held() -> void:
 			if world.place(def.place, pos, id):
 				inv.take(inv.selected, 1)
 		return
+	if def.get("preserves", false):
+		use_preserves(inv.selected)
+		return
 	if Items.is_food(id):
 		consume_slot(inv.selected)
 		return
@@ -766,6 +776,33 @@ func _use_measure(i: int, def: Dictionary) -> bool:
 		inv.replace(i, s.id, s.age, Items.measures_data(s.id, left))
 	else:
 		inv.replace(i, "canteen")
+	return true
+
+
+func use_preserves(i: int, how := "") -> bool:
+	## A preserving pot in slot i (core/preserves.gd): "seal" it, "open" it
+	## (everything into the bag; what doesn't fit lands at your feet), or ""
+	## for Use: seal an open pot, open a sealed one.
+	var inv = Game.inventory
+	var s = inv.slots[i]
+	if s == null or not Items.def(s.id).get("preserves", false):
+		return false
+	if how == "":
+		how = "seal" if s.id == "pot_preserves" else "open"
+	if how == "seal":
+		var why: String = Preserves.seal(inv, i)
+		if why != "":
+			Game.notify(why + (" Open it in your bag to take the food out." if s.id == "pot_preserves" else ""))
+			return false
+		Sfx.play("craft", -10.0)
+		Game.notify("You press the cap on and seal it with wax.")
+		return true
+	var spilled: Array = Preserves.open(inv, i)
+	for it in spilled:
+		if world and world.has_method("spawn_pickup"):
+			world.spawn_pickup(it.id, 1, drop_point(), it.age, true)
+	Sfx.play("pickup", -6.0)
+	Game.notify("You open the pot and take the food out." + (" Your bag is full: some of it is at your feet." if not spilled.is_empty() else ""))
 	return true
 
 

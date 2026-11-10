@@ -216,7 +216,8 @@ func night_index() -> int:
 
 func can_sleep_in() -> float:
 	## Seconds until the player is tired enough to sleep again (0 = now).
-	return maxf(last_sleep + SLEEP_COOLDOWN - time, 0.0)
+	var wait := last_sleep + SLEEP_COOLDOWN - time
+	return wait if wait > 0.01 else 0.0  # not a rounding error's worth
 
 
 # --- Worlds ----------------------------------------------------------------------

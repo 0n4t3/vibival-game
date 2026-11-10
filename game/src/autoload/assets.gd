@@ -795,26 +795,51 @@ func bedroll(b, col: Color) -> void:
 
 
 const BAITBOX_W := 0.24   # a baitbox's outside width and height
-const BAITBOX_H := 0.1
+const BAITBOX_H := 0.14
 
 
 func baitbox(b, rng: RandomNumberGenerator, wood: Color, done := 1.0, at := Vector3.ZERO, rotten := false) -> void:
-	## A little open box of board packed with raw meat. `done` < 1 leaves it
-	## unfinished: the base, then the sides going on, then the meat (last quarter).
+	## A little wooden cage of board strips packed with raw meat, the meat
+	## showing between the bars. `done` < 1 leaves it unfinished: the base,
+	## then the corner posts and the bars going on side by side, then the meat
+	## and the slatted lid tied down over it (last quarter).
 	var hw := BAITBOX_W * 0.5
-	var t := 0.014
-	b.box(at + Vector3(0, t * 0.5, 0), Vector3(BAITBOX_W, t, BAITBOX_W), wood, Basis(), "wood")
+	var t := 0.014        # board thickness
+	var post := 0.022     # corner posts, square
+	var bar := 0.018      # the bars between them
+	var h := BAITBOX_H
+	b.box(at + Vector3(0, t * 0.5, 0), Vector3(BAITBOX_W, t, BAITBOX_W), wood * 0.9, Basis(), "wood")
+	if done >= 1.0:
+		# The meat inside, seen through the bars.
+		var meat: Color = Color(0.42, 0.36, 0.22) if rotten else Items.def("raw_meat").color
+		b.blob(at + Vector3(-0.03, t + 0.035, 0.02), Vector3(0.07, 0.035, 0.06), 2, 6, meat, rng, 0.2, "organic")
+		b.blob(at + Vector3(0.035, t + 0.04, -0.03), Vector3(0.055, 0.04, 0.05), 2, 6, meat.lightened(0.12), rng, 0.2, "organic")
+	if done <= 0.25:
+		return
+	var inner := hw - post * 0.5
+	for c in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+		b.box(at + Vector3(c.x * inner, h * 0.5, c.y * inner), Vector3(post, h, post), wood * 0.85, Basis(), "wood")
+	# The bars, side by side: two upright ones between the posts on each side,
+	# held by a rail round the top.
 	var sides := roundi(clampf((done - 0.25) / 0.5, 0.0, 1.0) * 4)
 	for i in sides:
-		var tint := wood * (0.9 + 0.05 * (i % 2))
-		if i < 2:
-			b.box(at + Vector3(0, BAITBOX_H * 0.5, hw - t * 0.5 if i == 0 else -hw + t * 0.5), Vector3(BAITBOX_W, BAITBOX_H, t), tint, Basis(), "wood")
-		else:
-			b.box(at + Vector3(hw - t * 0.5 if i == 2 else -hw + t * 0.5, BAITBOX_H * 0.5, 0), Vector3(t, BAITBOX_H, BAITBOX_W - t * 2.0), tint * 0.9, Basis(), "wood")
-	if done >= 1.0:
-		var meat: Color = Color(0.42, 0.36, 0.22) if rotten else Items.def("raw_meat").color
-		b.blob(at + Vector3(-0.03, BAITBOX_H * 0.85, 0.02), Vector3(0.08, 0.035, 0.07), 2, 6, meat, rng, 0.2, "organic")
-		b.blob(at + Vector3(0.04, BAITBOX_H * 0.9, -0.03), Vector3(0.06, 0.03, 0.06), 2, 6, meat.lightened(0.12), rng, 0.2, "organic")
+		var tint := wood * (0.92 + 0.05 * (i % 2))
+		var along_x := i < 2
+		var off := (inner if i % 2 == 0 else -inner)
+		for k in 2:
+			var u := (k - 0.5) * BAITBOX_W * 0.36
+			var c := Vector3(u, h * 0.5, off) if along_x else Vector3(off, h * 0.5, u)
+			b.box(at + c, Vector3(bar, h - t, t), tint, Basis() if along_x else Basis(Vector3.UP, PI * 0.5), "wood")
+		var rail := Vector3(0, h - t * 0.5, off) if along_x else Vector3(off, h - t * 0.5, 0)
+		b.box(at + rail, Vector3(BAITBOX_W - post, t, t) if along_x else Vector3(t, t, BAITBOX_W - post), tint * 0.95, Basis(), "wood")
+	if done < 1.0:
+		return
+	# The lid: slats across the top with gaps, tied down at two corners.
+	for k in 3:
+		var z := (k - 1) * BAITBOX_W * 0.33
+		b.box(at + Vector3(0, h + t * 0.5, z), Vector3(BAITBOX_W, t, bar * 1.4), wood * (0.95 + 0.04 * k), Basis(), "wood")
+	for c in [Vector2(1, 1), Vector2(-1, -1)]:
+		b.box(at + Vector3(c.x * inner, h + t, c.y * inner), Vector3(0.03, 0.012, 0.03), CORD, Basis(Vector3.UP, 0.7), "fiber")
 
 
 func compost_heap(b, rng: RandomNumberGenerator, col: Color, scraps: bool) -> void:
@@ -1197,6 +1222,16 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 			b.blob(Vector3(0, 0.1, 0), Vector3(0.07, 0.03, 0.05), 2, 5, Color(0.70, 0.58, 0.38), rng, 0.3, "wood")
 			b.blob(Vector3(-0.1, 0.05, 0.16), Vector3(0.07, 0.05, 0.06), 2, 6, Color(0.55, 0.55, 0.52), rng, 0.15, "stone")
 			b.blob(Vector3(0.1, 0.05, 0.16), Vector3(0.07, 0.05, 0.06), 2, 6, Color(0.5, 0.5, 0.48), rng, 0.15, "stone")
+		"pot_capped":
+			# A clay pot with a wooden cap pressed into its mouth, waxed round.
+			pot(b, col, 1.0)
+			b.cylinder(Vector3(0, 0.183, 0), Vector3(0, 0.196, 0), 0.086, 0.086, 10, Color(0.85, 0.78, 0.45), Color(-1, 0, 0), "solid")
+			b.cylinder(Vector3(0, 0.196, 0), Vector3(0, 0.212, 0), 0.08, 0.074, 10, CANTEEN_WOOD, CANTEEN_WOOD * 0.9, "wood")
+			b.cylinder(Vector3(0, 0.212, 0), Vector3(0, 0.228, 0), 0.016, 0.013, 7, CANTEEN_WOOD * 0.92, Color(-1, 0, 0), "wood")
+		"pot_cap":
+			# A round cap with a lip, lying knob up.
+			b.cylinder(Vector3(0, 0.0, 0), Vector3(0, 0.014, 0), 0.08, 0.076, 10, col * 0.9, col, "wood")
+			b.cylinder(Vector3(0, 0.014, 0), Vector3(0, 0.03, 0), 0.016, 0.013, 7, col * 0.92, Color(-1, 0, 0), "wood")
 		"pot", "pot_water":
 			pot(b, col if shape == "pot" else FIRED, 1.0)
 			if shape == "pot_water":

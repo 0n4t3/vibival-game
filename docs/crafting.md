@@ -115,6 +115,7 @@ out, roots and all, for a root of that tree (plant it to grow a new one) and
 | Plant this | Grows into | In | Then |
 |---|---|---|---|
 | Seed Fern Seed, Seed Fern Root | A seed fern | 14 days | 1–2 seeds each harvest, growing back every 5 days (2.5 if you work compost in round it within a day of picking). Two mattock swings dig it up for 2 roots. |
+| Fern Spores (dig up a fern with the mattock: 3, or 1 if you picked it clean) | A fern | 14 days | Fiber and fiddleheads, growing back every 5 days (2.5 with compost). Dug up again it gives 1 spore. |
 | Calamites, Tree Fern, Lepidodendron or Sigillaria Root (from a dug-out stump) | That tree | 14 days | Fell it like any other. Its stump grows back, unless you dig it out. |
 
 **Shoots.** A young tree fern, Calamites or seed fern (one you planted, or a
@@ -302,7 +303,8 @@ bait.
 1. **Bait the rod.** Kneel (C), on the ground or at a workbench, and lay out
    the fishing rod with some bait. Choose *Bait the rod with …* and click the
    hook. The rod's name shows its bait. Which bait you use makes no
-   difference to what you catch.
+   difference to what you catch. A baited rod stays in your bag: laying it
+   out again just tells you it is already baited.
 2. **Cast.** Hold the rod and Use (right-click, the left trigger, or *Use* on
    a touch screen): the hook flies like a thrown stone. With no bait on the
    rod it won't cast. Use again with nothing on reels the line back in, bait
@@ -379,6 +381,18 @@ dies in the noose and is rotten food (3).
 bag as carcasses, to roast, dress or tear up like any other you killed (or
 rotten food, after two days). E on an empty trap picks it up; a snare's bait
 comes back with it.
+
+### The bait box
+
+At a workbench with the Woodworking Tools on its rack: 1 board and 2 raw
+meat or fish (4 steps) make a **Baitbox**, a little wooden cage packed with
+meat. Throw it (like a stone) into the water and every Eogyrinus and
+Uranocentrodon within about 65 m that can reach it **through the water**
+rushes to it and tears at it for 30 seconds, leaving you alone unless you
+come close enough to set one off anyway. Afterwards they settle where the
+box was. One out on land, or in water cut off from it, takes no notice.
+The meat goes off like raw meat (15 minutes); a rotten bait box draws them
+for only 15 seconds. Thrown on land it just lands.
 
 ### Paper and the ash pencil
 
@@ -569,6 +583,29 @@ clean a wound (Treat): it fights moderate and major infections (see
 [Survival](survival.md#infection)). Too many drinks are dangerous: see
 [Survival](survival.md#alcohol).
 
+### Pots of preserves
+
+A clay pot can carry preserved food away from a vessel, and once sealed, it
+keeps that food forever.
+
+1. **Fill**: carry an empty clay pot and open a vessel (right-click). Under
+   its food, **Pick** 1 to 4 of the pickled, alcohol-preserved or salted
+   items, then **Fill the pot**. They go in with one serving of the vessel's
+   liquid (pickling brine, salt brine or alcohol), however many items you
+   picked. You get a **Pot of Preserves**: open, it shows what it holds, and
+   its food keeps as it would in your bag.
+2. **Seal**: with a **Wooden Cap** and a lump of **wax** in your bag, Use the
+   pot (or **Seal** in your bag). It becomes a **Sealed Pot**. Nothing in a
+   sealed pot spoils, and you can't see what is inside.
+3. **Open**: Use a sealed pot, or **Open** either kind in your bag. All the
+   food comes out into your bag, with the age it had when sealed. You get
+   the clay pot and the cap back; the wax and the liquid are lost. Anything
+   that doesn't fit in your bag lands at your feet.
+
+A pot weighs what it holds: 1.5 kg of pot, 1.5 kg of liquid, and the food.
+Wooden caps are carved four at a time from a board at a workbench with the
+woodworking tools on its rack.
+
 ## The recipe book
 
 Tab opens the inventory, and the **Recipes** tab next to it is a read-only
@@ -601,6 +638,7 @@ once you have built one, what is made at it.
 | Fern Poultice | 2 fiddleheads, 1 plant fiber | 6 steps | Fights infection |
 | Woven Frond Sack | 4 cordage, 8 plant fiber | 8 steps | Carry 25 kg, or set it down as a 50 kg stash |
 | Woven Cloth Sack | 8 string (known once you have a spindle) | 8 steps | Carry 48 kg, or set it down as a 100 kg stash. Only your best sack counts |
+| Bedroll | 8 string (known once you have a spindle) | 8 steps | Set it down in a finished house: sleep on it, or save. See [Sleeping and saving](sleeping-and-saving.md#the-bedroll) |
 
 ## Knapping
 
