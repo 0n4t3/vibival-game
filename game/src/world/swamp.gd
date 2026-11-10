@@ -23,6 +23,8 @@ const House := preload("res://src/world/house.gd")
 const Plot := preload("res://src/world/plot.gd")
 const Compost := preload("res://src/world/compost.gd")
 const Trap := preload("res://src/world/trap.gd")
+const Baitbox := preload("res://src/world/baitbox.gd")
+const Bedroll := preload("res://src/world/bedroll.gd")
 
 var terrain: RefCounted
 var chunks := {}            # Vector2i -> chunk
@@ -55,18 +57,25 @@ const EOGYRINUS_CHANCE := 1.0 / 37.0  # per spawn tick (1.5 s) below the cap: ~5
 # River stones, chert and sticks washed up along the shore, and crusts of salt
 # where the water dried on the bank: a few lie within reach at any time, each staying
 # a couple of days before the water takes it back.
-const SHORE_ITEMS := 11         # kept within SHORE_RANGE of the player
+const SHORE_ITEMS := 18         # kept within SHORE_RANGE of the player
 const SHORE_RANGE := 100.0
 const SHORE_LIFE := [1.0, 3.0]  # days each one lies there
 const SHORE_CHERT := 0.3
 const SHORE_STICK := 0.3        # driftwood sticks stranded at the edge, in the shallows or on the bank
-const SHORE_SALT := 0.15        # of everything washing up: a salt crust, on dry bank
+const SHORE_SALT := 0.35        # of everything washing up: a salt crust, on dry bank
+const SHORE_ITEM_REACH := 8.0   # sticks and stones lie up to this far from open water
+const SHORE_SALT_REACH := 6.0   # salt crusts lie up to this far from the water's edge
+const SHORE_ITEM_TOP := 0.6     # ...on ground no higher than this above the water
 var _shore := []                # [{node, until}]
 var _shore_t := 0.0
 # Twice as far from the edge as you can reach the water to drink: any closer
 # and a Uranocentrodon buried nearby comes for you.
 const STRIKE_BAND := 6.5
 var player_at_shore := false
+# A thrown baitbox's feeding frenzy (start_frenzy): where, and seconds left.
+# Big amphibians that turn up near it while it lasts join in.
+var _frenzy_at := Vector3.ZERO
+var _frenzy_left := 0.0
 var _edge_t := 0.0
 var _sleeping := false
 var _debug_panel: Control = null
@@ -281,7 +290,7 @@ func _dev_wood() -> void:
 		c.rotation.y = player.rotation.y
 		c.level = clampi(int(bits[0]), 0, Compost.FULL)
 		c.meat = "meat" in bits
-		c.slow = 4.0 if "log" in bits else (2.0 if "stick" in bits else 1.0)
+		c.slow = Compost.WOODY["log"] if "log" in bits else (Compost.WOODY["stick"] if "stick" in bits else 1.0)
 		if c.level >= Compost.FULL:
 			c.done_at = Game.time + (-1.0 if "done" in bits else c.days() * Game.DAY_LENGTH)
 		c._refresh()
@@ -460,6 +469,29 @@ func floor_height(p: Vector3) -> float:
 	return h
 
 
+const FERN_REACH := 0.8   # how near where a mattock strikes a decorative fern must stand
+
+
+func clear_fern(p: Vector3) -> bool:
+	## A mattock swung at the ground: tears out the decorative fern there, if
+	## any (chunk.clear_fern), its own chunk first, then the ones around it.
+	## Only where it strikes the ground (not a trunk or a wall above one).
+	if absf(p.y - ground_height(p.x, p.z)) > 0.6:
+		return false
+	var at := Vector2i(floori(p.x / Chunk.SIZE), floori(p.z / Chunk.SIZE))
+	var order: Array[Vector2i] = [at]
+	for dx in [-1, 0, 1]:
+		for dz in [-1, 0, 1]:
+			if dx != 0 or dz != 0:
+				order.append(at + Vector2i(dx, dz))
+	for k in order:
+		var c: Node = chunks.get(k)
+		if c and c.clear_fern(p, FERN_REACH):
+			Sfx.play_at("rustle", p, -2.0, 0.2)
+			return true
+	return false
+
+
 func trunks_near(pos: Vector3) -> PackedVector3Array:
 	var c: Node = chunks.get(Vector2i(floori(pos.x / Chunk.SIZE), floori(pos.z / Chunk.SIZE)))
 	return c.trunks if c else PackedVector3Array()
@@ -507,6 +539,8 @@ func place(kind: String, pos: Vector3, item := "") -> bool:
 		return _place_compost(pos)
 	if kind == "snare":
 		return _place_snare(pos)
+	if kind == "bedroll":
+		return _place_bedroll()
 	if kind != "campfire":
 		return false
 	if floor_height(pos) > ground_height(pos.x, pos.z) + 0.5:
@@ -601,6 +635,64 @@ func _place_snare(pos: Vector3) -> bool:
 	Sfx.play("rustle", -6.0)
 	Game.notify("You set the snare. Kneel at it (C) to bait it.")
 	return true
+
+
+func _place_bedroll() -> bool:
+	## Sets the rolled-up bedroll down on the floor in front of you, only inside the room
+	## of a finished house (not on its porch), and not in the fireplace.
+	var fwd := -player.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	for d in [1.0, 0.6, 0.0]:
+		var at: Vector3 = player.global_position + fwd * d
+		var h := house_at(at)
+		if h == null or not h.room_spot(at, Bedroll.LENGTH * 0.5):
+			continue
+		if h.built.has("fireplace") and Vector2(at.x - h.to_global(House.HEARTH).x, at.z - h.to_global(House.HEARTH).z).length() < 1.0:
+			Game.notify("Not in the fireplace. Set the bedroll down somewhere else in the room.")
+			return false
+		var b := add_bedroll(Vector3(at.x, h.floor_top(at), at.z))
+		b.rotation.y = player.rotation.y + PI * 0.5  # lying across your view
+		Sfx.play("rustle", -6.0)
+		Game.notify("You set the bedroll down. Look at it: %s to sleep, %s to save the game." \
+				% [Settings.button_name("sleep"), Settings.button_name("interact")])
+		return true
+	Game.notify("Set the bedroll down on the floor inside your house.")
+	return false
+
+
+func add_bedroll(pos: Vector3) -> Node3D:
+	var b := Bedroll.new()
+	add_child(b)
+	b.global_position = pos
+	return b
+
+
+func sleep_on_bedroll() -> void:
+	## Sleep (Z) while looking at a bedroll: lies down at once, without the
+	## usual second press, if nothing stops you (sleep_blocker: not tired yet,
+	## hunted, bleeding...).
+	if player.ui_open:
+		return
+	var why := sleep_blocker()
+	if why != "":
+		if not _sleeping:
+			Game.notify(why)
+		return
+	_sleep_confirm_t = 0.0
+	hud.set_hint("")
+	_hint_t = 0.0
+	sleep(true)
+
+
+func save_at_bedroll() -> void:
+	## Interact (E) at a bedroll: the camp save, without sleeping. Not while
+	## anything stops a save and quit (suspend_blocker: hunted, in jaws...).
+	var why := suspend_blocker()
+	if why != "":
+		Game.notify(why)
+		return
+	save_now()
 
 
 func add_trap(kind: String, pos: Vector3, yaw := 0.0) -> Node3D:
@@ -877,6 +969,7 @@ func _process(delta: float) -> void:
 		Game.inventory.tick(_decay_t)
 		_decay_t = 0.0
 
+	_frenzy_left = maxf(_frenzy_left - delta, 0.0)
 	_spawn_t -= delta
 	if _spawn_t <= 0.0:
 		_spawn_t = 1.5
@@ -1160,10 +1253,10 @@ func _wash_up(p: Vector3, near: float, far: float, tries: int, until: float) -> 
 	## shore is shallows, so it looks for bank on purpose); otherwise a
 	## stick, stone or chert anywhere along the edge.
 	var salt := _rng.randf() < SHORE_SALT
-	var spot := shore_spot(p, near, far, tries * 4, true) if salt else Vector3.INF
+	var spot := shore_spot(p, near, far, tries * 4, true, SHORE_SALT_REACH, SHORE_ITEM_TOP) if salt else Vector3.INF
 	if not spot.is_finite():
 		salt = false
-		spot = shore_spot(p, near, far, tries)
+		spot = shore_spot(p, near, far, tries, false, SHORE_ITEM_REACH, SHORE_ITEM_TOP)
 	if not spot.is_finite():
 		return
 	var pk := add_shore_item("salt" if salt else _shore_kind(spot), spot, until)
@@ -1192,21 +1285,23 @@ func drawn_height(x: float, z: float) -> float:
 			lerpf(terrain.height(x0, z0 + step), terrain.height(x0 + step, z0 + step), fx), fz)
 
 
-func shore_spot(p: Vector3, near: float, far: float, tries := 16, dry := false) -> Vector3:
+func shore_spot(p: Vector3, near: float, far: float, tries := 16, dry := false, reach := 0.0, top := 0.3) -> Vector3:
 	## A point on the bank or in the very shallows, right by open water (dry:
 	## only on the bank, out of the water, within a few steps of its edge;
 	## the wading-deep water most of the shore needs is rarely that close to
-	## dry ground), or Vector3.INF if none turned up.
+	## dry ground), or Vector3.INF if none turned up. reach: how far from the
+	## water it may be (0: 3 m dry, 4 m otherwise); top: the highest ground.
 	var low := water_level() + 0.03 if dry else -0.25
+	var r := reach if reach > 0.0 else (3.0 if dry else 4.0)
 	for attempt in tries:
 		var a := _rng.randf() * TAU
 		var d := _rng.randf_range(near, far)
 		var x := p.x + cos(a) * d
 		var z := p.z + sin(a) * d
 		var h: float = terrain.height(x, z)
-		if h < low or h > 0.3:
+		if h < low or h > top:
 			continue
-		var wet := water_point(Vector3(x, h, z), 3.0, water_level() - 0.05) if dry else water_point(Vector3(x, h, z), 4.0)
+		var wet := water_point(Vector3(x, h, z), r, water_level() - 0.05) if dry else water_point(Vector3(x, h, z), r)
 		if not wet.is_finite():
 			continue
 		return Vector3(x, h, z)
@@ -1248,14 +1343,17 @@ func _spawn_eogyrinus(pos: Vector3, in_water: bool) -> Node3D:
 # A pile's smell draws scavengers (see guts.gd).
 
 func add_guts(pos: Vector3, n: int, skin := false) -> Node3D:
-	## Adds to a pile right there, or starts a new one.
+	## Adds to a pile right there, or starts a new one: on the ground, or a
+	## house's floor when pos is up at it (a pile under the house is another).
+	var y := floor_height(pos)
 	for g in get_tree().get_nodes_in_group("guts"):
-		if not g.is_queued_for_deletion() and Vector2(g.global_position.x - pos.x, g.global_position.z - pos.z).length() < 1.2:
+		if not g.is_queued_for_deletion() and Vector2(g.global_position.x - pos.x, g.global_position.z - pos.z).length() < 1.2 \
+				and absf(g.global_position.y - y) < 1.0:
 			g.add(n, skin)
 			return g
 	var pile := Guts.new().setup(n, skin, self)
 	add_child(pile)
-	pile.global_position = Vector3(pos.x, ground_height(pos.x, pos.z), pos.z)
+	pile.global_position = Vector3(pos.x, y, pos.z)
 	return pile
 
 
@@ -1355,7 +1453,25 @@ func spawn_amphibian(sp: String, m: String, pos: Vector3, water: Vector3) -> Nod
 	var c := Creature.new().setup(sp, pos, self)
 	add_child(c)
 	c.set_mode(m, water)
+	if _frenzy_left > 0.0:
+		c.frenzy(_frenzy_at, _frenzy_left)  # one turning up near a baitbox joins in
 	return c
+
+
+func start_frenzy(at: Vector3, secs: float, item_id := "baitbox") -> int:
+	## A baitbox has landed in the water at `at`: every Uranocentrodon and
+	## Eogyrinus within Creature.FRENZY_RADIUS rushes to it and tears at it for
+	## `secs`, leaving the player alone unless they come as close as would
+	## always set one off. Returns how many came.
+	add_child(Baitbox.new().setup(item_id, at, secs, self))
+	ThrownRock.ripple(self, at)
+	_frenzy_at = at
+	_frenzy_left = secs
+	var n := 0
+	for c in Game.creatures:
+		if is_instance_valid(c) and c.frenzy(at, secs):
+			n += 1
+	return n
 
 
 func water_point(pos: Vector3, max_r: float, depth := -0.3) -> Vector3:
@@ -1585,9 +1701,10 @@ func add_felled(kind: String, scale: float, lo: float, fall_dir: Vector3, pos: V
 
 
 func add_log(id: String, pos: Vector3, yaw: float, kind := Assets.LOG_KIND) -> Node3D:
-	## A log lying loose on the ground, cut from a tree of this kind.
+	## A log lying loose on the ground (or a house's floor, when pos is up at
+	## it), cut from a tree of this kind.
 	var lg := WoodLog.new().setup(id, self, kind)
-	lg.position = Vector3(pos.x, ground_height(pos.x, pos.z), pos.z)
+	lg.position = Vector3(pos.x, floor_height(pos), pos.z)
 	lg.rotation.y = yaw
 	add_child(lg)
 	lg.lie_on_ground()
@@ -1616,18 +1733,20 @@ func add_bench(pos: Vector3, yaw: float) -> Node3D:
 
 
 func add_soup_pot(id: String, pos: Vector3, yaw := 0.0) -> Node3D:
-	## A soup pot standing there on its tripod (see soup_pot.gd), empty.
+	## A soup pot standing there on its tripod (see soup_pot.gd), empty: on
+	## the ground, or a house's floor when pos is up at it.
 	var sp := SoupPot.new().setup(id, self)
-	sp.position = Vector3(pos.x, ground_height(pos.x, pos.z), pos.z)
+	sp.position = Vector3(pos.x, floor_height(pos), pos.z)
 	sp.rotation.y = yaw
 	add_child(sp)
 	return sp
 
 
 func add_vessel(id: String, pos: Vector3, yaw := 0.0) -> Node3D:
-	## A fermentation vessel standing there (see ferment_vessel.gd), empty.
+	## A fermentation vessel standing there (see ferment_vessel.gd), empty: on
+	## the ground, or a house's floor when pos is up at it.
 	var v := FermentVessel.new().setup(id, self)
-	v.position = Vector3(pos.x, ground_height(pos.x, pos.z), pos.z)
+	v.position = Vector3(pos.x, floor_height(pos), pos.z)
 	v.rotation.y = yaw
 	add_child(v)
 	return v
@@ -1844,8 +1963,9 @@ func request_sleep() -> void:
 	sleep()
 
 
-func sleep() -> void:
-	## Sleeps for Game.SLEEP_LENGTH, rolling for what goes wrong.
+func sleep(on_bedroll := false) -> void:
+	## Sleeps for Game.SLEEP_LENGTH, rolling for what goes wrong. On a bedroll
+	## you heal faster while you sleep (Survival.BEDROLL_HEAL).
 	if _sleeping:
 		return
 	_sleeping = true
@@ -1865,7 +1985,9 @@ func sleep() -> void:
 	for c in Game.creatures.duplicate():
 		if is_instance_valid(c) and not c.dead:
 			c.queue_free()
+	player.vitals.on_bedroll = on_bedroll
 	_pass_time(slept)
+	player.vitals.on_bedroll = false
 
 	var v = player.vitals
 	var news := _compost_pests()
@@ -2027,6 +2149,10 @@ func _world_state() -> Dictionary:
 	for c in get_tree().get_nodes_in_group("composters"):
 		if not c.is_queued_for_deletion():
 			composters.append(c.to_dict())
+	var bedrolls := []
+	for b in get_tree().get_nodes_in_group("bedrolls"):
+		if not b.is_queued_for_deletion():
+			bedrolls.append(b.to_dict())
 	var traps := []
 	for t in get_tree().get_nodes_in_group("traps"):
 		if not t.is_queued_for_deletion():
@@ -2080,6 +2206,7 @@ func _world_state() -> Dictionary:
 		"houses": houses,
 		"stashes": stashes,
 		"composters": composters,
+		"bedrolls": bedrolls,
 		"traps": traps,
 		"drops": drops,
 		"carcasses": carcasses,
@@ -2118,6 +2245,8 @@ func _apply_restore(r: Dictionary) -> void:
 		_add_stash(Vector3(sd.pos[0], sd.pos[1], sd.pos[2])).from_dict(sd)
 	for cd in r.get("composters", []):
 		add_compost(Vector3(cd.pos[0], cd.pos[1], cd.pos[2])).from_dict(cd)
+	for bd in r.get("bedrolls", []):
+		add_bedroll(Vector3(bd.pos[0], bd.pos[1], bd.pos[2])).from_dict(bd)
 	for td in r.get("traps", []):
 		if td.get("kind", "") in ["fish_trap", "snare"]:
 			add_trap(td.kind, Vector3(td.pos[0], td.pos[1], td.pos[2])).from_dict(td)

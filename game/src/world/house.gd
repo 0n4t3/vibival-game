@@ -409,6 +409,15 @@ func shelters(p: Vector3) -> bool:
 	return absf(l.x) <= HALF_W + 0.1 and l.z >= BACK - 0.1 and l.z <= EDGE + 0.1 and l.y > -0.5 and l.y < RIDGE
 
 
+func room_spot(p: Vector3, inset := 0.0) -> bool:
+	## Whether p is on the floor inside the finished house's room (not the
+	## porch), at least `inset` from its walls.
+	if preview or not complete() or not on_floor(p):
+		return false
+	var l := to_local(p)
+	return absf(l.x) <= HALF_W - T - inset and l.z >= BACK + T + inset and l.z <= DOOR_Z - T - inset
+
+
 func covers(p: Vector3, margin := 0.0) -> bool:
 	## Whether p (at any height) is within the house's footprint.
 	var l := to_local(p)
@@ -551,6 +560,14 @@ func _spill_fire() -> void:
 
 func _drop_what_stands_here() -> void:
 	## Sacks, piles, benches and loose things up on the floor fall to the ground.
+	for b in get_tree().get_nodes_in_group("bedrolls"):
+		# A bedroll only lies in a house: it comes down as the item.
+		if b.is_queued_for_deletion() or not covers(b.global_position):
+			continue
+		var at: Vector3 = b.global_position
+		at.y = _ground(at) + 0.2
+		spawn_pickup("bedroll", 1, at)
+		b.queue_free()
 	for g in ["stashes", "stacks", "drops", "workbenches"]:
 		for n in get_tree().get_nodes_in_group(g):
 			if not (n is Node3D) or n.is_queued_for_deletion():

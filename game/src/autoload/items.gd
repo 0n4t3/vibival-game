@@ -109,6 +109,8 @@ const ITEMS := {
 	# Dug up with a seed fern (a mattock, harvestable.gd).
 	"fern_root": {"name": "Seed Fern Root", "desc": "A knobbly root dug up with a seed fern. Edible raw: some greens, hardly any food. Set it in a hole to grow a seed fern.", "stack": 20, "w": 0.08,
 		"color": Color(0.52, 0.40, 0.26), "shape": "root", "energy": 0.5, "greens": 8.0, "decay": 4320.0, "plant": "seed_fern"},
+	"fern_spores": {"name": "Fern Spores", "desc": "A pinch of rusty spores shaken from the fronds of a fern dug up with a mattock. Set them in a hole to grow a fern.", "stack": 20, "w": 0.01,
+		"color": Color(0.55, 0.36, 0.20), "shape": "seed", "plant": "fern"},
 	"seed": {"name": "Seed Fern Seed", "desc": "A big oily seed from a Medullosa. Better roasted, or set it in a hole to grow a seed fern.", "stack": 20, "w": 0.05,
 		"color": Color(0.62, 0.50, 0.28), "shape": "seed", "energy": 6.0, "starch": 10.0, "decay": 1800.0,
 		"cook": "roast_seed", "cook_time": 24.0, "plant": "seed_fern"},
@@ -143,7 +145,7 @@ const ITEMS := {
 		"color": Color(0.70, 0.50, 0.25), "shape": "grub", "energy": 9.0, "protein": 13.0, "decay": 1500.0},
 	"raw_meat": {"name": "Raw Meat", "desc": "Pale, fishy flesh. Cook it before eating.", "stack": 10, "w": 0.5,
 		"color": Color(0.80, 0.40, 0.38), "shape": "meat", "energy": 8.0, "protein": 14.0, "sick": 0.5, "decay": 900.0,
-		"cook": "cooked_meat", "cook_time": 40.0},
+		"cook": "cooked_meat", "cook_time": 40.0, "as": "any_raw_meat"},
 	"cooked_meat": {"name": "Cooked Meat", "desc": "Hot and filling.", "stack": 10, "w": 0.4,
 		"color": Color(0.55, 0.30, 0.18), "shape": "meat", "energy": 24.0, "protein": 26.0, "decay": 2400.0},
 	"gnawed_meat": {"name": "Gnawed Meat", "desc": "Scraps torn from a half-eaten kill. Cook them.", "stack": 10, "w": 0.2,
@@ -186,7 +188,7 @@ const ITEMS := {
 		"color": Color(0.62, 0.45, 0.25), "shape": "fish", "energy": 16.0, "protein": 18.0, "decay": 2400.0},
 	"fish_meat": {"name": "Fish Meat", "desc": "A slab of raw fish. Cook it, or tear it up for bait.", "stack": 10, "w": 0.4,
 		"color": Color(0.88, 0.62, 0.56), "shape": "meat", "energy": 7.0, "protein": 13.0, "sick": 0.3, "decay": 900.0,
-		"cook": "cooked_fish", "cook_time": 32.0},
+		"cook": "cooked_fish", "cook_time": 32.0, "as": "any_raw_meat"},
 	"cooked_fish": {"name": "Cooked Fish", "desc": "White, flaky and filling.", "stack": 10, "w": 0.35,
 		"color": Color(0.85, 0.72, 0.52), "shape": "meat", "energy": 20.0, "protein": 22.0, "decay": 2400.0},
 	"cooked_scraps": {"name": "Cooked Scraps", "desc": "Not much, but it's hot.", "stack": 10, "w": 0.15,
@@ -243,6 +245,17 @@ const ITEMS := {
 		"cook": "roast_dragonfly", "cook_time": 24.0},
 	"roast_dragonfly": {"name": "Roast Meganeura", "desc": "Crunchy, a little like a prawn.", "stack": 5, "w": 0.15,
 		"color": Color(0.52, 0.30, 0.16), "shape": "dragonfly", "energy": 12.0, "protein": 18.0, "decay": 2400.0},
+	# `as` any_raw_meat: a piece of raw meat or of raw fish will do where a
+	# recipe asks for either (a baitbox). "any_raw_meat" itself is never found.
+	"any_raw_meat": {"name": "Raw Meat or Fish", "desc": "A piece of raw meat or raw fish.", "stack": 10, "w": 0.5,
+		"color": Color(0.80, 0.40, 0.38), "shape": "meat"},
+	# Thrown into the water, a baitbox sends every Uranocentrodon and Eogyrinus
+	# within Creature.FRENZY_RADIUS into a feeding frenzy round it for `frenzy`
+	# seconds (swamp.start_frenzy). On land it is just dropped.
+	"baitbox": {"name": "Baitbox", "desc": "A little open box of board packed with raw meat. Throw it (Use) into the water and every big amphibian for a long way round rushes to it and tears at it for half a minute, ignoring you unless you come too close. It goes off like raw meat.", "stack": 3, "w": 1.6,
+		"color": Color(0.62, 0.48, 0.30), "shape": "baitbox", "throw": true, "frenzy": 30.0, "decay": 900.0, "spoil": "baitbox_rotten"},
+	"baitbox_rotten": {"name": "Rotten Baitbox", "desc": "A baitbox whose meat has gone off. Thrown into the water it still draws the big amphibians, but they lose interest in half the time.", "stack": 3, "w": 1.5,
+		"color": Color(0.45, 0.40, 0.28), "shape": "baitbox", "throw": true, "frenzy": 15.0},
 	"guts": {"name": "Guts", "desc": "A slippery handful of offal. Scavengers smell it from far off. Throw it (Use) to lay a lure on land, or into the water to draw what lives there.", "stack": 10, "w": 0.4,
 		"color": Color(0.62, 0.30, 0.36), "shape": "guts", "decay": 900.0, "throw": true, "splat": true, "tags": ["bait"]},
 	"charred": {"name": "Charred Remains", "desc": "Left on the fire far too long.", "stack": 20, "w": 0.1,
@@ -283,7 +296,7 @@ const ITEMS := {
 	"bow_drill": {"name": "Bow Drill", "desc": "Lights campfires. Keep it in your inventory.", "stack": 1, "w": 0.6,
 		"color": Color(0.60, 0.48, 0.30), "shape": "drill", "tags": ["fire"]},
 	# Farming (compost.gd, plot.gd): a basket filled to level 20 composts for
-	# 15 days (twice as long with sticks or branches in it, four times with a
+	# 5 days (twice as long with sticks or branches in it, three times with a
 	# log), then gives 5 compost. `compost` in an item: what it adds to the level.
 	"compost_basket": {"name": "Compost Basket", "desc": "A slatted crate for rotting scraps down into compost. Set it down with Use, then fill it (E) with food, sticks, branches, guts or a carried log.", "stack": 1, "w": 6.0,
 		"color": Color(0.62, 0.48, 0.30), "shape": "basket", "place": "compost"},
@@ -418,6 +431,10 @@ const ITEMS := {
 		"color": Color(0.62, 0.55, 0.32), "shape": "sack", "tags": ["sack"], "place": "sack", "carry_kg": 17.0, "stash": 50.0},
 	"cloth_sack": {"name": "Woven Cloth Sack", "desc": "A light, finely woven sack of spun string. Lets you carry 40 kg more. Set it down with Use to leave a stash holding up to 100 kg. Only your best sack counts.", "stack": 1, "w": 0.5,
 		"color": Color(0.86, 0.82, 0.68), "shape": "sack", "tags": ["sack"], "place": "sack", "carry_kg": 40.0, "stash": 100.0},
+	# Set down (Use), still rolled up, only on the floor of a finished house (swamp._place_bedroll,
+	# bedroll.gd): sleep on it, or save the game at it.
+	"bedroll": {"name": "Bedroll", "desc": "A coarse, primitive sleeping bag of loosely woven string, rolled up and tied. Set it down (Use) on the floor of your house. Then look at it and press Z to sleep when you're tired, or E to save the game without sleeping. Right-click it to pick it up again.", "stack": 1, "w": 1.2,
+		"color": Color(0.64, 0.54, 0.36), "shape": "bedroll", "place": "bedroll"},
 }
 
 ## Crafting tiers. Each tier is a place to work: by hand anywhere on the
@@ -529,6 +546,9 @@ const RECIPES := [
 	{"out": "fiber_sack", "n": 1, "in": {"cordage": 4, "plant_fiber": 8}, "where": "swamp", "tier": "hand",
 		"cat": "Containers", "act": "steps", "verb": "Weave a sack",
 		"how": "Click the edges to weave row after row, then tie the neck."},
+	{"out": "bedroll", "n": 1, "in": {"string": 8}, "where": "swamp", "tier": "hand", "known_by": "spindle",
+		"cat": "Gear", "act": "steps", "steps": 8, "verb": "Weave a bedroll",
+		"how": "Click the edges to weave the string into a long, coarse sheet, row after row, then fold it over, roll it up and tie it. Set it down (Use) on the floor of your house."},
 	{"out": "cloth_sack", "n": 1, "in": {"string": 8}, "where": "swamp", "tier": "hand", "known_by": "spindle",
 		"cat": "Containers", "act": "steps", "verb": "Weave a cloth sack",
 		"how": "Click the edges to weave the string tightly, row after row, then tie the neck."},
@@ -622,6 +642,9 @@ const RECIPES := [
 	{"out": "compost_basket", "n": 1, "in": {"board": 4, "stick": 6, "cordage": 2}, "where": "swamp", "tier": "bench", "rack": "woodworking_tools", "listed": true,
 		"cat": "Farming", "act": "steps", "steps": 6, "verb": "Build a compost basket",
 		"how": "Click the glowing spots to set up four stick posts, then saw the boards into slats and lash them round, course by course."},
+	{"out": "baitbox", "n": 1, "in": {"board": 1, "any_raw_meat": 2}, "where": "swamp", "tier": "bench", "rack": "woodworking_tools", "listed": true,
+		"cat": "Traps", "act": "steps", "steps": 4, "verb": "Make a baitbox",
+		"how": "Click the glowing spots to saw the board into a base and four sides, pin them into a little open box, then pack the meat in. Throw it (Use) into the water to send the big amphibians nearby into a feeding frenzy."},
 	{"out": "fish_trap", "n": 1, "in": {"stick": 10, "cordage": 3}, "where": "swamp", "tier": "bench", "rack": "woodworking_tools", "listed": true,
 		"cat": "Traps", "act": "steps", "steps": 6, "verb": "Make a fish trap",
 		"how": "Click the glowing spots to saw the sticks to length, bend hoops, lash the long ribs round them and set the funnel in the mouth. It is left beside the bench: carry it to shallow water, set it down and bait it (C)."},
@@ -684,9 +707,6 @@ const WOODWORK := [
 		"give": {"bark": 6, "branch": 3}, "verb": "Strip the log", "label": "Bark x6, Branch x3",
 		"how": "Click along the log to lop off the branch stubs and peel the bark away."},
 	{"wood": "shorten", "on": "log", "out": "short_log", "n": 4, "in": {}, "act": "steps", "steps": 6,
-		"verb": "Cut into short logs", "label": "Short Log x4, left lying beside it",
-		"how": "Click each glowing mark to chop through the log."},
-	{"wood": "shorten", "on": "log_stripped", "out": "short_log", "n": 4, "in": {}, "act": "steps", "steps": 6,
 		"verb": "Cut into short logs", "label": "Short Log x4, left lying beside it",
 		"how": "Click each glowing mark to chop through the log."},
 	{"wood": "hew", "on": "log_stripped", "out": "board", "n": 2, "in": {}, "act": "steps", "steps": 6,

@@ -767,6 +767,56 @@ func compost_basket(b, rng: RandomNumberGenerator, done := 1.0, at := Vector3.ZE
 				lashing(b, at + out + along * hw * 0.98 + Vector3(0, y - 0.05 * size, 0), at + out + along * hw * 0.98 + Vector3(0, y + 0.05 * size, 0), 0.032 * size, 2)
 
 
+const BEDROLL_R := 0.13   # a rolled-up bedroll's radius; it is bedroll.gd's LENGTH long
+
+
+func bedroll(b, col: Color) -> void:
+	## A coarse burlap sleeping bag rolled up along X and tied with two cords,
+	## lying on the ground: the rolled layers show at its ends and the loose
+	## edge of the outer layer runs along the top.
+	var hl: float = 0.75 * 0.5
+	var r := BEDROLL_R
+	b.cylinder(Vector3(-hl, r, 0), Vector3(hl, r, 0), r, r, 12, col, Color(-1, 0, 0), "fiber")
+	# Coarse weave: faint bands along the roll.
+	for i in 6:
+		var x := lerpf(-hl + 0.05, hl - 0.05, i / 5.0)
+		b.cylinder(Vector3(x - 0.008, r, 0), Vector3(x + 0.008, r, 0), r + 0.002, r + 0.002, 12, col * 0.9, Color(-1, 0, 0), "fiber", false)
+	# The rolled layers at each end, darker toward the middle.
+	for side in [-1.0, 1.0]:
+		for k in 3:
+			var rr := r * (0.78 - k * 0.24)
+			var x0: float = side * (hl + 0.002 + k * 0.002)
+			b.cylinder(Vector3(x0, r, 0), Vector3(x0 + side * 0.003, r, 0), rr, rr, 10, col * (0.8 - k * 0.12), Color(-1, 0, 0), "fiber")
+	# The loose edge of the outer layer.
+	b.box(Vector3(0, r * 1.9, r * 0.45), Vector3(hl * 1.9, 0.012, 0.05), col * 0.95, Basis(Vector3.RIGHT, 0.5), "fiber")
+	# Two ties.
+	for x in [-hl * 0.55, hl * 0.55]:
+		lashing(b, Vector3(x - 0.012, r, 0), Vector3(x + 0.012, r, 0), r + 0.008, 2)
+
+
+const BAITBOX_W := 0.24   # a baitbox's outside width and height
+const BAITBOX_H := 0.1
+
+
+func baitbox(b, rng: RandomNumberGenerator, wood: Color, done := 1.0, at := Vector3.ZERO, rotten := false) -> void:
+	## A little open box of board packed with raw meat. `done` < 1 leaves it
+	## unfinished: the base, then the sides going on, then the meat (last quarter).
+	var hw := BAITBOX_W * 0.5
+	var t := 0.014
+	b.box(at + Vector3(0, t * 0.5, 0), Vector3(BAITBOX_W, t, BAITBOX_W), wood, Basis(), "wood")
+	var sides := roundi(clampf((done - 0.25) / 0.5, 0.0, 1.0) * 4)
+	for i in sides:
+		var tint := wood * (0.9 + 0.05 * (i % 2))
+		if i < 2:
+			b.box(at + Vector3(0, BAITBOX_H * 0.5, hw - t * 0.5 if i == 0 else -hw + t * 0.5), Vector3(BAITBOX_W, BAITBOX_H, t), tint, Basis(), "wood")
+		else:
+			b.box(at + Vector3(hw - t * 0.5 if i == 2 else -hw + t * 0.5, BAITBOX_H * 0.5, 0), Vector3(t, BAITBOX_H, BAITBOX_W - t * 2.0), tint * 0.9, Basis(), "wood")
+	if done >= 1.0:
+		var meat: Color = Color(0.42, 0.36, 0.22) if rotten else Items.def("raw_meat").color
+		b.blob(at + Vector3(-0.03, BAITBOX_H * 0.85, 0.02), Vector3(0.08, 0.035, 0.07), 2, 6, meat, rng, 0.2, "organic")
+		b.blob(at + Vector3(0.04, BAITBOX_H * 0.9, -0.03), Vector3(0.06, 0.03, 0.06), 2, 6, meat.lightened(0.12), rng, 0.2, "organic")
+
+
 func compost_heap(b, rng: RandomNumberGenerator, col: Color, scraps: bool) -> void:
 	var hw := COMPOST_W * 0.5 - 0.03
 	b.box(Vector3(0, 0.5, 0), Vector3(hw * 2.0, 1.0, hw * 2.0), col * 0.85, Basis(), "organic")
@@ -1157,6 +1207,10 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 			b.box(Vector3(0.09, 0.003, 0), Vector3(0.12, 0.004, 0.08), col * 0.95, Basis(), "fiber")
 		"basket":
 			compost_basket(b, rng, 1.0, Vector3.ZERO, 0.45)
+		"baitbox":
+			baitbox(b, rng, col, 1.0, Vector3.ZERO, id == "baitbox_rotten")
+		"bedroll":
+			bedroll(b, col)
 		"fish_trap":
 			fish_trap(b, rng, 1.0, Vector3.ZERO, 0.6)
 		"snare":

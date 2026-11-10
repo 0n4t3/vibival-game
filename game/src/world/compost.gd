@@ -4,16 +4,16 @@ extends StaticBody3D
 ## (wood_log.gd) up to level FULL: most things add 2, a grub 1, a branch 4,
 ## a log 10.
 ## Full, it composts for DAYS game days: twice as long if a stick or branch
-## went in, four times with a log (the slowest one counts, they don't add up).
+## went in, three times with a log (the slowest one counts, they don't add up).
 ## Then E takes out YIELD compost and it is empty again. Meat in it may draw a
 ## pest beside it each time you sleep (swamp.sleep → pest_roll).
 
 const FULL := 20
-const DAYS := 15.0
+const DAYS := 5.0
 const YIELD := 5
 const PEST_CHANCE := 0.15
 const PESTS := ["scorpion", "arthropleura"]
-const WOODY := {"stick": 2.0, "branch": 2.0, "log": 4.0, "log_stripped": 4.0}
+const WOODY := {"stick": 2.0, "branch": 2.0, "log": 3.0, "log_stripped": 3.0}
 
 var level := 0
 var slow := 1.0       # how many times longer than DAYS it takes (WOODY)

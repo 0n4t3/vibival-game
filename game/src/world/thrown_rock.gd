@@ -7,6 +7,8 @@ extends Node3D
 ##   player: it erupts and snaps at the spot, and settles there.
 ## Thrown guts (items with `splat`) hurt nothing: they make a guts pile where
 ## they land, or are gone in a splash that lures amphibians just the same.
+## A thrown baitbox (items with `frenzy`) hurts nothing either: in the water
+## it sets off a feeding frenzy (swamp.start_frenzy); on land it just lies there.
 
 const GRAVITY := 9.8
 const STUN_TIME := 2.5
@@ -15,6 +17,7 @@ const STEPS := 3
 const WIND_DRAG := 0.3
 
 var id := "stone"
+var age := 0.0       # how far a perishable thrown item (a baitbox) has gone off
 var vel := Vector3.ZERO
 var thrower: Node3D = null
 var world: Node = null
@@ -63,7 +66,10 @@ func _physics_process(delta: float) -> void:
 		var g: float = world.ground_height(next.x, next.z)
 		var water: float = world.water_level()
 		if g < water and prev.y >= water and next.y < water:
-			splash(world, Vector3(next.x, water, next.z))
+			if Items.def(id).has("frenzy"):
+				ripple(world, Vector3(next.x, water, next.z))  # the frenzy draws them, not the splash
+			else:
+				splash(world, Vector3(next.x, water, next.z))
 			_land(next)
 			return
 		var hit := _solid_on(prev, next)
@@ -111,7 +117,7 @@ func _solid_on(a: Vector3, b: Vector3) -> Dictionary:
 
 
 func _hit_creature(c: Node3D) -> void:
-	if Items.def(id).get("splat", false):
+	if Items.def(id).get("splat", false) or Items.def(id).has("frenzy"):
 		Sfx.play_at("splash", c.hit_center(), -8.0, 0.3)
 		_land(c.global_position + Vector3(0, 0.5, 0))
 		return
@@ -146,13 +152,21 @@ static func ripple(w: Node, p: Vector3) -> void:
 
 func _land(p: Vector3) -> void:
 	_done = true
+	var frenzy := float(Items.def(id).get("frenzy", 0.0))
+	if frenzy > 0.0 and world and world.has_method("start_frenzy") \
+			and world.ground_height(p.x, p.z) < world.water_level():
+		world.start_frenzy(Vector3(p.x, world.water_level(), p.z), frenzy, id)
+		queue_free()
+		return
 	if Items.def(id).get("splat", false):
 		if world and world.has_method("add_guts") and world.ground_height(p.x, p.z) >= world.water_level() - 0.1:
 			world.add_guts(p, 1)
 		queue_free()
 		return
 	if world and world.has_method("spawn_pickup"):
-		world.spawn_pickup(id, 1, p, 0.0, false)  # thrown stones are gone after a reload
+		# Thrown stones are gone after a reload; a baitbox thrown on land is kept,
+		# still going off.
+		world.spawn_pickup(id, 1, p, age, Items.def(id).has("frenzy"))
 	queue_free()
 
 

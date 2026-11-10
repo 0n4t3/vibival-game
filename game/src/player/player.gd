@@ -178,7 +178,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if grabbed_by:
 		return
 	if event.is_action_pressed("sleep"):
-		if world and world.has_method("request_sleep"):
+		if focus and is_instance_valid(focus) and focus.has_method("sleep_on") and not hauling:
+			focus.sleep_on(self)  # a bedroll: lie down on it at once
+		elif world and world.has_method("request_sleep"):
 			world.request_sleep()
 	elif event.is_action_pressed("waypoint"):
 		if world and world.has_method("mark_waypoint"):
@@ -700,7 +702,9 @@ func throw_held() -> void:
 	var dir := -camera.global_transform.basis.z
 	var from := camera.global_position + dir * 0.4 + Vector3(0, -0.1, 0)
 	var v := dir * THROW_SPEED + Vector3(0, 1.5, 0) + velocity * 0.5
-	world.add_child(ThrownRock.new().setup(item.id, from, v, self, world))
+	var rock := ThrownRock.new()
+	rock.age = float(item.get("age", 0.0))  # a baitbox keeps going off
+	world.add_child(rock.setup(item.id, from, v, self, world))
 	Sfx.play("swing", -6.0)
 
 
@@ -859,6 +863,8 @@ func put_down() -> void:
 	if c and climbing:
 		Game.notify("Climb off the ladder before you set the %s down." % c.haul_name())
 		return
+	if c and is_instance_valid(c):
+		_keep_on_floor(c)  # first, so a workbench's room is checked where it will stand
 	if c and is_instance_valid(c) and c.has_method("can_put_down") and not c.can_put_down():
 		return  # a workbench needs room to stand
 	hauling = null
@@ -866,6 +872,24 @@ func put_down() -> void:
 		return
 	c.set_hauled(null)
 	Sfx.play("step", -4.0)
+
+
+func _keep_on_floor(c: Node3D) -> void:
+	## Standing on a house's floor, what you set down stays up on it: held out
+	## past a wall (or the porch's edge), it is drawn back toward you until it
+	## is over the floor, rather than dropping to the ground under the house.
+	if world == null or not world.has_method("floor_height") or not world.has_method("ground_height"):
+		return
+	var me := global_position
+	var mine: float = world.floor_height(me)
+	if mine <= world.ground_height(me.x, me.z) + 0.5:
+		return  # on the ground: it goes down wherever it is
+	var at := c.global_position
+	for t in [1.0, 0.75, 0.5, 0.25, 0.0]:
+		var q := Vector3(lerpf(me.x, at.x, t), me.y + 0.5, lerpf(me.z, at.z, t))
+		if world.floor_height(q) > mine - 0.3:
+			c.global_position = Vector3(q.x, maxf(at.y, mine), q.z)  # a dragged one may hang below
+			return
 
 
 func _hold_haul() -> void:
@@ -936,17 +960,24 @@ func _attack() -> void:
 			hurt(SPINE_PRICK, best.global_position, 0.2, "spines")
 			Game.notify("The %s's fin spines jab your hand." % best.def.name)
 	elif "dig" in def.get("tags", []):
-		# A mattock knocks a campfire apart (or a workbench loose), or digs out a stump.
+		# A mattock knocks a campfire apart (or a workbench loose), digs out a
+		# stump or a plant (a harvestable fern: its spores), or, struck into
+		# the ground, tears out a decorative fern there for nothing.
 		var hit := _ray(reach, 1 | 2)
 		if hit:
 			var c: Node = hit.collider
+			var done := false
 			for n in [c, c.get_parent()]:
 				if n and n.has_method("break_apart"):
 					n.break_apart()
+					done = true
 					break
 				if n and n.has_method("dig"):
 					n.dig()
+					done = true
 					break
+			if not done and world and world.has_method("clear_fern"):
+				world.clear_fern(hit.position)
 	elif "chop" in def.get("tags", []):
 		# An axe hacks at a house site to tear it down, or knocks a workbench loose.
 		var hit := _ray(reach, 1 | 2)

@@ -143,12 +143,12 @@ func button_name(action: String) -> String:
 
 
 func hint(text: String) -> String:
-	## Text for the player, its key hints ("[E]", "[C]", "[Q]", "[W]",
+	## Text for the player, its key hints ("[E]", "[C]", "[Q]", "[W]", "[Z]",
 	## "[Right-click]") as the buttons now bound on whatever is being used.
 	## On a gamepad the rest of the wording follows too (pad_words).
 	if text.contains("[Right-click / Q]"):
 		text = text.replace("[Right-click / Q]", "[%s / %s]" % [_cap(button_name("use")), _cap(button_name("drop"))])
-	for pair in [["[E]", "interact"], ["[C]", "craft"], ["[Q]", "drop"], ["[W]", "move_forward"], ["[Right-click]", "use"]]:
+	for pair in [["[E]", "interact"], ["[C]", "craft"], ["[Q]", "drop"], ["[W]", "move_forward"], ["[Z]", "sleep"], ["[Right-click]", "use"]]:
 		if text.contains(pair[0]):
 			text = text.replace(pair[0], "[%s]" % _cap(button_name(pair[1])))
 	if text.contains("Q puts it down"):

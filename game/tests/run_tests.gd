@@ -107,6 +107,18 @@ func _ready() -> void:
 		print("== soup pot")
 		await test_soup()
 		await test_soup_blood()
+	if only.is_empty() or "baitbox" in only:
+		print("== baitbox")
+		await test_baitbox()
+	if only.is_empty() or "bedroll" in only:
+		print("== bedroll")
+		await test_bedroll()
+	if only.is_empty() or "house_floor" in only:
+		print("== things on a house floor")
+		await test_house_floor()
+	if only.is_empty() or "fern_dig" in only:
+		print("== digging ferns")
+		await test_fern_dig()
 	if only.is_empty() or "canteen" in only:
 		print("== canteen and rack recipes")
 		await test_canteen()
@@ -1329,6 +1341,15 @@ func _find_spot(w: Node, near: Vector3, ok: Callable) -> Vector3:
 	return Vector3.INF
 
 
+func _clear_amphibians() -> void:
+	## Takes away the world's own amphibians, so one that happens to live
+	## near the test's stretch of shore can't get to the player first.
+	for c in Game.creatures.duplicate():
+		if is_instance_valid(c) and c.species in ["uranocentrodon", "eogyrinus"]:
+			c.queue_free()
+	await _frames(2)
+
+
 func _new_swamp() -> Node:
 	_fresh_state()
 	var w: Node = load("res://scenes/swamp.tscn").instantiate()
@@ -1832,6 +1853,7 @@ func test_amphibian() -> void:
 			break
 	check(far_lair.is_finite(), "found water 12 m off the edge")
 	if far_lair.is_finite():
+		await _clear_amphibians()
 		var u3: Node = w.spawn_amphibian("uranocentrodon", "hide", far_lair, far_lair)
 		await _frames(15)
 		check(not w.player_at_shore and u3.state == "hide", "well back from the water, it stays buried")
@@ -2271,6 +2293,8 @@ func test_wood() -> void:
 	check(_do_wood(w, "strip"), "strip it")
 	check(Game.inventory.count("bark") == 6 and Game.inventory.count("branch") == 3 and a.item_id == "log_stripped",
 			"stripping gives six bark and three branches, and leaves a stripped log")
+	have = w.work.options().map(func(o): return o.recipe.get("wood", ""))
+	check(have.has("hew") and not have.has("shorten"), "a stripped log can be hewn, but not cut short (%s)" % [have])
 	check(_do_wood(w, "hew"), "hew it")
 	await _frames(2)
 	check(Game.inventory.count("board_" + Assets.LOG_KIND) == 4 and Game.inventory.count_as("board") == 4 and not is_instance_valid(a),
@@ -2674,7 +2698,7 @@ func test_bench() -> void:
 	w._update_sky()
 	check(w._sun.light_energy > 0.6 and w._env.ambient_light_energy > 0.55, "a bright moon still lights the night")
 
-	# Salt crusts wash up on the bank, never in the water: about one in seven
+	# Salt crusts wash up on the bank, never in the water: about a third
 	# of everything that washes up.
 	for e in w._shore:
 		e.node.queue_free()
@@ -2687,7 +2711,7 @@ func test_bench() -> void:
 		w._wash_up(at, 1.0, 30.0, 80, Game.time + 1e6)
 	var salts: Array = w._shore.filter(func(e): return e.node.item_id == "salt")
 	var share := salts.size() / maxf(w._shore.size(), 1.0)
-	check(w._shore.size() > 100 and share > 0.07 and share < 0.3, "salt crusts turn up (%d in %d)" % [salts.size(), w._shore.size()])
+	check(w._shore.size() > 100 and share > 0.22 and share < 0.48, "salt crusts turn up (%d in %d)" % [salts.size(), w._shore.size()])
 	var on_bank := func(e) -> bool:
 		var q: Vector3 = e.node.global_position
 		return q.y > w.water_level() + 0.02 and q.y >= w.drawn_height(q.x, q.z)
@@ -3751,6 +3775,7 @@ func test_soup_blood() -> void:
 		w.queue_free()
 		return
 	p.global_position = edge + Vector3(0, 0.1, 0)
+	await _clear_amphibians()
 	var u: Node = w.spawn_amphibian("uranocentrodon", "hide", far, far)
 	var e: Node = null
 	if farther.is_finite():
@@ -3805,6 +3830,370 @@ func test_soup_blood() -> void:
 	if p.grabbed_by:
 		p.grabbed_by.release(false)
 		p.release_grab()
+	w.queue_free()
+	await _frames(2)
+
+
+func test_baitbox() -> void:
+	## A baitbox thrown into the water sends every big amphibian near it into a
+	## feeding frenzy round it, leaving the player alone unless they come close.
+	var r: Dictionary = Items.recipe_for("baitbox", "swamp")
+	check(not r.is_empty() and r.in == {"board": 1, "any_raw_meat": 2} and r.tier == "bench", "a baitbox: a board and two raw meat, at a bench")
+	check(Items.counts_as("raw_meat", "any_raw_meat") and Items.counts_as("fish_meat", "any_raw_meat"), "raw meat or fish meat will do")
+	check(["cooked_meat", "cooked_fish", "guts", "meat_bait", "gnawed_meat", "elonichthys_carcass"].all(func(id): return not Items.counts_as(id, "any_raw_meat")),
+			"nothing else will")
+	check(Items.counts_as("raw_meat", "raw_meat") and Items.counts_as("fish_meat", "fish_meat"), "each still counts as itself (meat bait)")
+	var inv := Inventory.new()
+	inv.add("board_calamites", 1)
+	inv.add("raw_meat", 1)
+	inv.add("fish_meat", 1)
+	check(inv.craft(r) and inv.count("baitbox") == 1 and inv.count_as("any_raw_meat") == 0 and inv.count_as("board") == 0,
+			"one of each, mixed, make a baitbox")
+	inv.clear()
+	inv.add("board_calamites", 1)
+	inv.add("cooked_meat", 2)
+	check(not inv.can_craft(r), "cooked meat won't do")
+	check(Items.def("baitbox").get("spoil", "") == "baitbox_rotten" and Items.def("baitbox_rotten").frenzy < Items.def("baitbox").frenzy,
+			"it goes off into a rotten baitbox, which still works for less time")
+	check(Assets.mesh("item_baitbox") != null and Assets.mesh("item_baitbox_rotten") != null, "both have a look")
+
+	var w: Node = await _new_swamp()
+	var p: Node = w.player
+	var start: Vector3 = p.global_position
+	var edge := _find_spot(w, start, func(q): return q.y > 0.05 and q.y < 0.4 and w.water_point(q, 3.0, -0.1).is_finite())
+	check(edge.is_finite(), "found the water's edge")
+	if not edge.is_finite():
+		w.queue_free()
+		return
+	# The box goes into water 24-36 m out; an animal buried by the edge, where
+	# it would strike you, and one 100 m off, out of the frenzy's reach.
+	var box := Vector3.INF
+	var beyond := Vector3.INF
+	for k in 48:
+		var a := TAU * k / 48.0
+		for d in [24.0, 30.0, 36.0]:
+			var q: Vector3 = edge + Vector3(cos(a), 0, sin(a)) * d
+			q.y = w.ground_height(q.x, q.z)
+			if q.y < -0.6 and not box.is_finite():
+				box = q
+	if box.is_finite():
+		for k in 48:
+			var a := TAU * k / 48.0
+			var q: Vector3 = box + Vector3(cos(a), 0, sin(a)) * (Creature.FRENZY_RADIUS + 35.0)
+			q.y = w.ground_height(q.x, q.z)
+			if q.y < -0.6 and not beyond.is_finite():
+				beyond = q
+	var by_edge: Vector3 = w.water_point(edge, 10.0, -0.6)
+	check(box.is_finite() and by_edge.is_finite(), "found water for the box and by the edge")
+	if not box.is_finite() or not by_edge.is_finite():
+		w.queue_free()
+		return
+	p.global_position = edge + Vector3(0, 0.1, 0)
+	var u: Node = w.spawn_amphibian("uranocentrodon", "hide", by_edge, by_edge)
+	var x: Node = w.spawn_amphibian("uranocentrodon", "hide", beyond, beyond) if beyond.is_finite() else null
+	# Thrown: it lands in the water and is gone, setting off the frenzy.
+	var tr := ThrownRock.new()
+	w.add_child(tr.setup("baitbox", box + Vector3(0, 1, 0), Vector3.ZERO, p, w))
+	tr._land(Vector3(box.x, w.water_level(), box.z))
+	check(w._frenzy_left > 0.0 and u.state == "frenzy" and not u.submerged, "a baitbox in the water: the one by the edge comes up and goes for it")
+	check(x == null or x.state == "hide", "one more than %d m off takes no notice" % Creature.FRENZY_RADIUS)
+	await _run_for(8.0, func(): return p.grabbed_by != null)
+	check(p.grabbed_by == null, "you stand at the water's edge unharmed")
+	var gone: float = Vector2(u.global_position.x - box.x, u.global_position.z - box.z).length()
+	check(gone < u.def.radius + 6.0, "it is tearing at the box (%.1f m from it)" % gone)
+	# One that turns up while it lasts joins in.
+	var e: Node = w.spawn_amphibian("eogyrinus", "lurk", by_edge, by_edge)
+	check(e.state == "frenzy", "an Eogyrinus turning up now joins in")
+	e.queue_free()
+	# Too close, and it attacks as it always would.
+	var close: Vector3 = u.global_position + Vector3(3.0, 0.0, 0.0)
+	close.y = w.ground_height(close.x, close.z) + 0.1
+	p.global_position = close
+	await _run_for(4.0, func(): return p.grabbed_by != null)
+	check(p.grabbed_by != null, "come too close and they attack like normal")
+	if p.grabbed_by:
+		p.grabbed_by.release(false)
+		p.release_grab()
+	# Hit from afar, it comes for you as it always would.
+	p.global_position = edge + Vector3(0, 0.1, 0)
+	u._calm = 0.0
+	u.state = "frenzy"
+	u._frenzy = 5.0
+	u.take_damage(1.0, p)
+	check(u.state == "strike", "hit while it feeds, it strikes back")
+	u.state = "return"
+	# Afterwards it stays where the box was.
+	p.global_position = edge + Vector3(0, 0.1, 0)
+	w._frenzy_left = 0.0
+	u._frenzy = 0.0
+	u._calm = 0.0
+	await _run_for(10.0, func(): return u.state == "hide")
+	check(u.state in ["hide", "return"] and Vector2(u.home.x - box.x, u.home.z - box.z).length() < 0.1,
+			"when it is over it buries itself where the box was (state %s)" % u.state)
+	# On land a baitbox just lands.
+	var tr2 := ThrownRock.new()
+	w.add_child(tr2.setup("baitbox", edge + Vector3(0, 1, 0), Vector3.ZERO, p, w))
+	tr2._land(edge)
+	check(w._frenzy_left == 0.0, "thrown on land it sets nothing off")
+	w.queue_free()
+	await _frames(2)
+
+
+func test_bedroll() -> void:
+	## A bedroll is set down (rolled up) only inside a finished house. Looking at it, Z
+	## sleeps at once when tired (healing faster), E saves without sleeping.
+	var r: Dictionary = Items.recipe_for("bedroll", "swamp")
+	check(not r.is_empty() and r.in == {"string": 8} and r.tier == "hand" and r.get("known_by", "") == "spindle", "a bedroll: 8 string, by hand, once you know the spindle")
+	check(Items.def("bedroll").get("place", "") == "bedroll" and Assets.mesh("item_bedroll") != null, "it is set down with Use, and has a look")
+	check(Settings.hint("Sleep [Z]") == "Sleep [%s]" % Settings._cap(Settings.button_name("sleep")), "[Z] hints name the sleep button")
+
+	# Faster healing asleep on a bedroll.
+	var a := Survival.new()
+	var b := Survival.new()
+	for v in [a, b]:
+		v.blood = 60.0
+	b.on_bedroll = true
+	for i in 12:
+		a.tick(5.0, false, false, false, true)
+		b.tick(5.0, false, false, false, true)
+	check(b.blood > a.blood, "blood comes back faster on a bedroll (%.1f vs %.1f)" % [b.blood, a.blood])
+	var c := Survival.new()
+	var d := Survival.new()
+	for v in [c, d]:
+		v.add_wound(0.1, 0.0, "test")
+		v.wounds[0].bleed = 0
+	d.on_bedroll = true
+	for i in 6:  # 30 s: neither heals right up
+		c.tick(5.0, false, false, false, true)
+		d.tick(5.0, false, false, false, true)
+	var sc: float = c.wounds[0].sev if not c.wounds.is_empty() else 0.0
+	var sd: float = d.wounds[0].sev if not d.wounds.is_empty() else 0.0
+	check(sd < sc or (d.wounds.is_empty() and not c.wounds.is_empty()), "and wounds heal faster (%.3f vs %.3f)" % [sd, sc])
+
+	var w: Node = await _new_swamp()
+	var p: Node = w.player
+	Game.inventory.clear()
+	var start: Vector3 = p.global_position
+	var good := _find_spot(w, start, func(q):
+		p.global_position = q + Vector3(0, 0.05, 0)
+		return q.y > 0.3 and w.house_spot(p).why == "")
+	check(good.is_finite(), "somewhere a house can stand")
+	if not good.is_finite():
+		w.queue_free()
+		return
+	var spot: Dictionary = w.house_spot(p)
+	var h: Node = w.add_house(spot.at, spot.yaw)
+	await _frames(1)
+
+	# Not on open ground, nor on an unfinished house.
+	var outside: Vector3 = h.to_global(Vector3(0, 0, House.EDGE + 4.0))
+	outside.y = w.ground_height(outside.x, outside.z) + 0.05
+	p.global_position = outside
+	check(not w.place("bedroll", outside, "bedroll"), "not out on the ground")
+	h.build_to(House.PARTS.size() - 1)
+	await _frames(1)
+	var inside: Vector3 = h.to_global(Vector3(-0.8, 0.05, -0.6))
+	p.global_position = inside
+	p.rotation.y = h.rotation.y
+	if not h.complete():
+		check(not w.place("bedroll", inside, "bedroll"), "not in an unfinished house")
+	h.build_to(House.PARTS.size())
+	await _frames(1)
+	check(h.complete(), "the house is finished")
+	# Not on the porch.
+	p.global_position = h.to_global(Vector3(0, 0.05, 1.7))
+	p.rotation.y = h.rotation.y + PI
+	check(not w.place("bedroll", p.global_position, "bedroll"), "not out on the porch")
+	# In the room.
+	p.global_position = inside
+	p.rotation.y = h.rotation.y
+	check(w.place("bedroll", inside, "bedroll"), "set down on the floor of the room")
+	var beds := get_tree().get_nodes_in_group("bedrolls")
+	check(beds.size() == 1, "a bedroll lies there")
+	if beds.is_empty():
+		w.queue_free()
+		return
+	var bed: Node = beds[0]
+	check(absf(bed.global_position.y - h.global_position.y) < 0.05 and h.room_spot(bed.global_position), "on the floor, inside")
+	check("[Z]" in bed.prompt(p) and "[E]" in bed.prompt(p), "its prompt names sleep and save")
+
+	# E saves without sleeping, even when not tired.
+	Game.last_sleep = Game.time - 10.0
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Game.save_path))
+	var t0 := Game.time
+	bed.interact(p)
+	check(FileAccess.file_exists(Game.save_path) and not w._sleeping and Game.time - t0 < 1.0, "E saves the game without sleeping")
+	check(Game.read_save().get("bedrolls", []).size() == 1, "the bedroll is saved with the world")
+
+	# Z: not tired yet, nothing happens; tired, you sleep at once.
+	bed.sleep_on(p)
+	check(not w._sleeping, "Z does nothing when you aren't tired")
+	Game.last_sleep = Game.time - Game.SLEEP_COOLDOWN
+	p.focus = bed
+	var ev := InputEventAction.new()
+	ev.action = "sleep"
+	ev.pressed = true
+	p._unhandled_input(ev)
+	check(w._sleeping, "tired, Z while looking at it sleeps at once, without a second press")
+	while w._sleeping:
+		await get_tree().process_frame
+	check(Game.can_sleep_in() > 0.0 and not p.vitals.on_bedroll, "slept (and the bedroll's healing is over)")
+
+	# Right-click picks it up again.
+	bed.use_interact(p)
+	await _frames(1)
+	check(not is_instance_valid(bed) and Game.inventory.count("bedroll") == 1, "right-click puts it back in the bag")
+
+	# Torn down, the house leaves it on the ground as the item.
+	check(w.place("bedroll", inside, "bedroll"), "set down again")
+	h.tear_down()
+	await _frames(2)
+	var left := get_tree().get_nodes_in_group("drops").filter(func(d): return d.item_id == "bedroll")
+	check(get_tree().get_nodes_in_group("bedrolls").is_empty() and left.size() == 1, "a torn-down house leaves the bedroll on the ground as the item")
+	w.queue_free()
+	await _frames(2)
+
+
+func test_house_floor() -> void:
+	## Things made, cut, set down or loaded on a house's floor stay up on it,
+	## not on the ground under the house.
+	var w: Node = await _new_swamp()
+	var p: Node = w.player
+	Game.inventory.clear()
+	var good := _find_spot(w, p.global_position, func(q):
+		p.global_position = q + Vector3(0, 0.05, 0)
+		return q.y > 0.3 and w.house_spot(p).why == "")
+	check(good.is_finite(), "somewhere a house can stand")
+	if not good.is_finite():
+		w.queue_free()
+		return
+	var spot: Dictionary = w.house_spot(p)
+	var h: Node = w.add_house(spot.at, spot.yaw)
+	h.build_to(House.PARTS.size())
+	await _frames(2)
+	var fy: float = h.global_position.y
+	var up := func(n: Node3D) -> bool: return is_instance_valid(n) and absf(n.global_position.y - fy) < 0.1
+
+	# Added up at the floor: a log, a soup pot, a vessel, guts.
+	var lg: Node = w.add_log("log", h.to_global(Vector3(0.0, 0.05, -0.8)), h.rotation.y)
+	var pot: Node = w.add_soup_pot("soup_pot", h.to_global(Vector3(-1.0, 0.05, 0.4)))
+	var ves: Node = w.add_vessel("vessel_open", h.to_global(Vector3(1.0, 0.05, 0.4)))
+	var gp: Node = w.add_guts(h.to_global(Vector3(-1.0, 0.05, -1.8)), 1)
+	check(up.call(lg) and up.call(pot) and up.call(ves) and up.call(gp), "a log, a soup pot, a vessel and guts added at the floor stay on it")
+	var under: Vector3 = h.to_global(Vector3(-1.0, 0.0, -1.8))
+	under.y = w.ground_height(under.x, under.z)
+	var gu: Node = w.add_guts(under, 1)
+	check(gu != gp and gu.global_position.y < fy - 1.0, "guts under the house are another pile, on the ground")
+	gu.queue_free()
+
+	# Made at a bench in the house: left standing on the floor beside it.
+	var made: Node = w.add_carried("soup_pot_unfired", h.to_global(Vector3(-1.0, 0.05, -0.4)))
+	check(up.call(made), "a soup pot made indoors stands on the floor")
+	made.queue_free()
+
+	# Kneeling to work a log on the floor keeps you (and the work) up there.
+	var sl: Node = w.add_log("short_log", h.to_global(Vector3(-0.6, 0.05, -1.2)), h.rotation.y)
+	check(up.call(sl), "a short log on the floor")
+	p.global_position = h.to_global(Vector3(-0.6, 0.05, -0.5))
+	p.velocity = Vector3.ZERO
+	w._start_wood_work(sl, {})
+	check(up.call(p) and w.work != null and up.call(w.work), "kneeling at it, you and the work stay on the floor")
+	w.close_work()
+	await _frames(1)
+
+	# Set down facing the back wall: drawn back inside, not dropped through it.
+	p.global_position = h.to_global(Vector3(0.0, 0.05, -1.9))
+	p.rotation.y = h.rotation.y
+	p.velocity = Vector3.ZERO
+	p.start_haul(sl)
+	await _frames(3)
+	p.put_down()
+	await _frames(2)
+	check(up.call(sl) and h.covers(sl.global_position), "a log set down facing a wall stays on the floor, inside")
+
+	# Saved and loaded: still up on the floor.
+	var state: Dictionary = w._world_state()
+	w.queue_free()
+	await _frames(2)
+	_fresh_state()
+	Game.restore = state
+	var w2: Node = load("res://scenes/swamp.tscn").instantiate()
+	add_child(w2)
+	await _frames(5)
+	w2._spawn_t = 1e9
+	var h2: Node = Game.houses[0] if not Game.houses.is_empty() else null
+	check(h2 != null, "the house loads")
+	if h2:
+		fy = h2.global_position.y
+		var logs := get_tree().get_nodes_in_group("logs")
+		check(logs.size() >= 2 and logs.all(func(n): return absf(n.global_position.y - fy) < 0.1), "logs load on the floor, not under the house")
+		check(w2.get_children().any(func(n): return n.get("item_id") == "soup_pot" and absf(n.global_position.y - fy) < 0.1), "the soup pot loads on the floor")
+		check(w2.get_children().any(func(n): return n.get("item_id") == "vessel_open" and absf(n.global_position.y - fy) < 0.1), "the vessel loads on the floor")
+	w2.queue_free()
+	await _frames(2)
+
+
+func test_fern_dig() -> void:
+	## A mattock tears out a decorative fern for nothing, and digs up a
+	## harvestable fern for its spores, which grow ferns as fast as seed ferns.
+	var sp: Dictionary = Items.def("fern_spores")
+	check(sp.get("plant", "") == "fern", "fern spores grow a fern")
+	check(Harvestable.KINDS.fern.get("dig", {}).has("fern_spores") and int(Harvestable.KINDS.fern.get("dig_hits", 1)) == 1, "one swing digs up a fern for its spores")
+	var pf: Dictionary = Harvestable.KINDS.get("planted_fern", {})
+	var ps: Dictionary = Harvestable.KINDS.planted_seed_fern
+	check(not pf.is_empty() and pf.regrow == ps.regrow and pf.fed_regrow == ps.fed_regrow, "a planted fern grows back as fast as a planted seed fern")
+
+	var w: Node = await _new_swamp()
+	Game.inventory.clear()
+	Game.inventory.add("mattock", 1)
+
+	# A decorative fern: gone for good, nothing gained.
+	var chunk: Node = null
+	for c in w.chunks.values():
+		if is_instance_valid(c) and not c.decor_ferns.is_empty():
+			chunk = c
+			break
+	check(chunk != null, "a chunk with decorative ferns")
+	if chunk:
+		var e: Dictionary = chunk.decor_ferns[0]
+		var n0: int = chunk.decor_ferns.size()
+		var at := Vector3(e.x, w.ground_height(e.x, e.z), e.z)
+		check(not w.clear_fern(at + Vector3(0, 3.0, 0)), "not when the swing hits something up off the ground")
+		check(w.clear_fern(at), "a mattock struck into the ground at a decorative fern tears it out")
+		check(chunk.decor_ferns.size() == n0 - 1 and Game.taken.has(e.key) and Chunk.fern_key(e.x, e.z) == e.key, "gone for good (kept by where it stood)")
+		check(Game.inventory.count("mattock") == 1 and Game.inventory.slots.filter(func(x): return x != null).size() == 1, "and nothing gained")
+
+	# A harvestable fern: dug up, gone for good, its spores in the bag.
+	var hf := Harvestable.new().setup("fern", "htest:fern")
+	w.add_child(hf)
+	hf.global_position = w.player.global_position + Vector3(2.0, 0, 0)
+	await _frames(1)
+	hf.dig()
+	await _frames(1)
+	check(not is_instance_valid(hf) and Game.taken.has("htest:fern"), "a harvestable fern dug up is gone for good")
+	check(Game.inventory.count("fern_spores") == 3, "an unpicked fern gives 3 spores (%d)" % Game.inventory.count("fern_spores"))
+	# One already picked clean gives just 1.
+	var hp := Harvestable.new().setup("fern", "htest:fern2")
+	w.add_child(hp)
+	hp.global_position = w.player.global_position + Vector3(-2.0, 0, 0)
+	await _frames(1)
+	hp.interact(w.player)
+	var spores: int = Game.inventory.count("fern_spores")
+	check(not hp.is_ready(), "stripped, it is picked clean")
+	hp.dig()
+	await _frames(1)
+	check(not is_instance_valid(hp) and Game.inventory.count("fern_spores") == spores + 1, "a picked-clean fern gives 1 spore")
+
+	# Planted, the spores come up and grow like a seed fern's seed.
+	var t0 := Game.time
+	Game.plantings["ptest"] = {"x": 0.0, "y": 0.0, "z": 0.0, "dug": t0 - Plot.FILL_AFTER * 2.0, "buried": t0 - Plot.FILL_AFTER - 1.0,
+			"item": {"id": "fern_spores", "age": 0.0}}
+	check(Plot.settle("ptest") == "herb" and Game.plantings.ptest.get("plant", "") == "fern", "the spores come up as a young fern")
+	check(is_equal_approx(float(Game.plantings.ptest.days), Plot.GROW_DAYS), "growing for as long as a seed fern")
+	Game.time = t0 + Plot.GROW_DAYS * Game.DAY_LENGTH
+	check(Plot.settle("ptest") == "grown", "and then grown (a planted fern)")
+	Game.plantings.erase("ptest")
+	Game.time = t0
 	w.queue_free()
 	await _frames(2)
 
@@ -4523,7 +4912,8 @@ func test_shore() -> void:
 	var ok: bool = w._shore.size() >= 4
 	for e in w._shore:
 		var q: Vector3 = e.node.global_position
-		ok = ok and q.y >= -0.25 and q.y <= 0.3 and w.water_point(q, 4.0).is_finite() \
+		ok = ok and q.y >= -0.25 and q.y <= w.SHORE_ITEM_TOP + 0.05 \
+				and w.water_point(q, w.SHORE_ITEM_REACH, w.water_level() - 0.05).is_finite() \
 				and e.until > Game.time and e.until <= Game.time + 3.0 * Game.DAY_LENGTH
 	check(ok, "%d stones lie along the shore, each for up to a few days" % w._shore.size())
 	var ids := {}
@@ -4542,7 +4932,11 @@ func test_shore() -> void:
 	w._shore[0].until = Game.time - 1.0
 	w._update_shore(0.0)
 	check(first.is_queued_for_deletion() and not w._shore.any(func(e): return e.node.get_instance_id() == first_id), "an old one is gone")
-	w._shore_t = 0.0
+	# Take a few more away, so there is room under SHORE_ITEMS for new ones.
+	for e in w._shore.slice(0, 5):
+		e.until = Game.time - 1.0
+	w._shore_t = 1e9
+	w._update_shore(0.0)
 	var before: int = w._shore.size()
 	for i in 10:
 		w._shore_t = 0.0
@@ -6048,13 +6442,14 @@ func test_seed_fern_dig() -> void:
 	picked.dig()
 	check(inv.count("fern_root") == 4 and inv.count("seed") == 0, "a picked fern gives only its roots")
 
-	# Other plants can't be dug up.
-	var plain: Node = Harvestable.new().setup("fern", "h_test_fern_c")
+	# Plants without roots to dig (a tree fern) can't be dug up. (Strippable
+	# ferns can: test_fern_dig.)
+	var plain: Node = Harvestable.new().setup("tree_fern", "h_test_fern_c")
 	w.add_child(plain)
 	plain.global_position = at + Vector3(-2, 0, 0)
 	plain.dig()
 	plain.dig()
-	check(not plain.is_queued_for_deletion() and not "dig it up" in plain.prompt(p), "a fern is left alone")
+	check(not plain.is_queued_for_deletion() and not "dig it up" in plain.prompt(p), "a tree fern is left alone")
 
 	# A dug-up seed fern never comes back when its chunk is made again.
 	var c: Node = w.chunks.values()[0]
@@ -6474,7 +6869,7 @@ func test_compost_basket() -> void:
 	check(inv.count("compost_basket") == 1 and not is_instance_valid(c), "and is")
 	c = await _new_compost(w, at)
 
-	# Filling it: food counts 2 and leaves the time at 15 days.
+	# Filling it: food counts 2 and leaves the time at 5 days.
 	_hold("seed")
 	check(c.prompt(p).begins_with("Put the Seed Fern Seed in the compost") and "+2: 2 / 20" in c.prompt(p), "it takes food (%s)" % c.prompt(p))
 	_hold("flint")
@@ -6482,9 +6877,9 @@ func test_compost_basket() -> void:
 	c.interact(p)
 	check(c.level == 0 and inv.count("flint") >= 1, "which stays in your hand")
 	_fill_compost(c, "seed", 1)
-	check(c.level == 2 and c.slow == 1.0 and not c.meat and not c.full(), "a seed: level 2, 15 days")
+	check(c.level == 2 and c.slow == 1.0 and not c.meat and not c.full(), "a seed: level 2, 5 days")
 	_hold("stick")
-	check("slows it to 30 days" in c.prompt(p), "a stick slows it (%s)" % c.prompt(p))
+	check("slows it to 10 days" in c.prompt(p), "a stick slows it (%s)" % c.prompt(p))
 	c.interact(p)
 	check(c.level == 4 and c.slow == 2.0, "a stick: twice as long")
 	_fill_compost(c, "raw_meat", 1)
@@ -6492,7 +6887,7 @@ func test_compost_basket() -> void:
 	_fill_compost(c, "branch", 1)
 	check(c.level == 10 and c.slow == 2.0, "a branch counts 4, and doesn't slow it more")
 
-	# A carried log goes in from your arms: 10, and four times as long.
+	# A carried log goes in from your arms: 10, and three times as long.
 	var lg: Node = w.add_log("log", c.global_position + Vector3(1.0, 0.3, 0), 0.0)
 	await _frames(1)
 	p.global_position = c.global_position + Vector3(1.5, 0.2, 0)
@@ -6500,18 +6895,18 @@ func test_compost_basket() -> void:
 	check(p.hauling == lg and lg.haul_prompt(p).begins_with("Put the") and "in the compost" in lg.haul_prompt(p), "carrying a log by it (%s)" % lg.haul_prompt(p))
 	check(lg.haul_interact(p), "E puts it in")
 	await _frames(1)
-	check(not is_instance_valid(lg) and p.hauling == null and c.level == 20 and c.slow == 4.0, "the log is in: level 20, 60 days")
-	check(c.full() and absf(c.done_at - Game.time - 60.0 * Game.DAY_LENGTH) < 1.0, "full at 20: compost in 60 days, not 15 x 2 x 4")
+	check(not is_instance_valid(lg) and p.hauling == null and c.level == 20 and c.slow == 3.0, "the log is in: level 20, 15 days")
+	check(c.full() and absf(c.done_at - Game.time - 15.0 * Game.DAY_LENGTH) < 1.0, "full at 20: compost in 15 days, not 5 x 2 x 3")
 	_hold("seed")
 	var n_seed: int = inv.count("seed")
 	c.interact(p)
 	check(c.level == 20 and inv.count("seed") == n_seed, "full, it takes nothing more")
-	check(c.prompt(p).begins_with("Compost Basket: composting, 60 days left"), "it says how long (%s)" % c.prompt(p))
+	check(c.prompt(p).begins_with("Compost Basket: composting, 15 days left"), "it says how long (%s)" % c.prompt(p))
 
-	# Branches alone: 30 days. Food alone: 15. A log can top it up past 20.
+	# Branches alone: 10 days. Food alone: 5. A log can top it up past 20.
 	var c2 := await _new_compost(w, at + p.global_basis.x * 1.5)
 	_fill_compost(c2, "branch", 5)
-	check(c2.full() and absf(c2.done_at - Game.time - 30.0 * Game.DAY_LENGTH) < 1.0, "five branches: full, 30 days")
+	check(c2.full() and absf(c2.done_at - Game.time - 10.0 * Game.DAY_LENGTH) < 1.0, "five branches: full, 10 days")
 	var c3 := await _new_compost(w, at - p.global_basis.x * 1.5)
 	_fill_compost(c3, "rotten", 8)
 	c3.add("log")
@@ -6520,7 +6915,7 @@ func test_compost_basket() -> void:
 	# Done, it gives 5 compost and is empty again.
 	var c4 := await _new_compost(w, at + p.global_basis.x * 3.0)
 	_fill_compost(c4, "seed", 10)
-	check(c4.full() and absf(c4.done_at - Game.time - 15.0 * Game.DAY_LENGTH) < 1.0, "all food: 15 days")
+	check(c4.full() and absf(c4.done_at - Game.time - 5.0 * Game.DAY_LENGTH) < 1.0, "all food: 5 days")
 	Game.time = c4.done_at - 1.0
 	check(not c4.is_done(), "not yet just before")
 	Game.time = c4.done_at + 1.0
@@ -6556,7 +6951,7 @@ func test_compost_basket() -> void:
 	# Baskets are saved.
 	check(w.save_now(), "saved")
 	var saved: Array = Game.read_save().get("composters", [])
-	check(saved.size() == 4 and saved.any(func(d): return int(d.level) == 20 and float(d.slow) == 4.0 and d.meat), "the baskets are saved")
+	check(saved.size() == 4 and saved.any(func(d): return int(d.level) == 20 and float(d.slow) == 3.0 and d.meat), "the baskets are saved")
 	var c5: Node = w.add_compost(at + Vector3(0, 0, 5))
 	c5.from_dict(c.to_dict())
 	check(c5.level == 20 and c5.meat and is_equal_approx(c5.done_at, c.done_at), "and come back as they were")

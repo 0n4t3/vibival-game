@@ -157,7 +157,7 @@ func haul_lift() -> float:
 func haul_prompt(_player: Node) -> String:
 	var bin := _compost_bin(_player)
 	if bin:
-		return "Put the %s in the compost [E]   (+10, slows it to %d days; Q puts it down)" % [haul_name(), roundi(bin.DAYS * 4.0)]
+		return "Put the %s in the compost [E]   (+10, slows it to %d days; Q puts it down)" % [haul_name(), roundi(bin.DAYS * bin.WOODY["log"])]
 	var site := _stilt_site(_player)
 	if site and _stilt_wood():
 		return "%s with this log [E]   (Q puts it down)" % site.next_part().verb

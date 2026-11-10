@@ -38,6 +38,12 @@ var trunks := PackedVector3Array()   # (x, z, radius) in world space: trunks and
 ## r (trunk radius), mm (its kind's MultiMesh), i (instance), shape, trunk
 ## (index in trunks), crown (a tree fern's harvestable crown), stump}.
 var trees: Array = []
+## Decorative ferns (DECOR "fern", ground cover only): {key, i (instance in
+## _fern_mm), x, z (world)}. A mattock clears one for good (clear_fern):
+## Game.taken gets its key, which goes by where it stands, so it stays gone
+## at any graphics quality.
+var decor_ferns: Array = []
+var _fern_mm: MultiMesh
 var _trunk_body: StaticBody3D
 
 static var _rock_hull := PackedVector3Array()
@@ -193,8 +199,16 @@ func build(chunk_x: int, chunk_z: int, terrain: RefCounted, world: Node) -> void
 			var s := r.randf_range(def.scale[0], def.scale[1])
 			var t := Transform3D(Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3.ONE * s), Vector3(lx, h - 0.05, lz))
 			if look.randf() < keep:
+				if kind == "fern":
+					# Checked after every roll, so a cleared one leaves the rest as they were.
+					var key := fern_key(ox + lx, oz + lz)
+					if Game.taken.has(key):
+						continue
+					decor_ferns.append({"key": key, "i": xforms.size(), "x": ox + lx, "z": oz + lz})
 				xforms.append(t)
-		_add_multimesh(kind, xforms, 40.0 if Settings.quality == 0 else 60.0, false)
+		var dmm := _add_multimesh(kind, xforms, 40.0 if Settings.quality == 0 else 60.0, false)
+		if kind == "fern":
+			_fern_mm = dmm
 
 	# Rocky knolls get boulders.
 	var rocks := []
@@ -310,6 +324,32 @@ func _boulder_hull() -> PackedVector3Array:
 			seen[v.snappedf(0.01)] = true
 		_rock_hull = PackedVector3Array(seen.keys())
 	return _rock_hull
+
+
+static func fern_key(x: float, z: float) -> String:
+	## Game.taken's key for a decorative fern standing at world x, z.
+	return "d%d:%d" % [roundi(x * 10.0), roundi(z * 10.0)]
+
+
+func clear_fern(p: Vector3, r: float) -> bool:
+	## A mattock tears out the decorative fern nearest p (within r, on the
+	## ground's plane), for good. Nothing comes of it. False if none is there.
+	var best := -1
+	var best_d := r
+	for k in decor_ferns.size():
+		var e: Dictionary = decor_ferns[k]
+		var d := Vector2(e.x - p.x, e.z - p.z).length()
+		if d < best_d:
+			best = k
+			best_d = d
+	if best < 0 or _fern_mm == null:
+		return false
+	var e: Dictionary = decor_ferns[best]
+	var o: Vector3 = _fern_mm.get_instance_transform(e.i).origin
+	_fern_mm.set_instance_transform(e.i, Transform3D(Basis().scaled(Vector3.ZERO), o))
+	Game.taken[e.key] = true
+	decor_ferns.remove_at(best)
+	return true
 
 
 func _add_harvestable(kind: String, pos: Vector3, yaw: float, idx: int, crown := 0.0, crown_scale := 1.0) -> Node3D:

@@ -1428,11 +1428,12 @@ func _rebuild_work() -> void:
 			b.leaf(Vector3(-0.3, 0.012, 0), Vector3(1, 0, 0), 0.6, 0.26, 0.0, 4, Items.def("frond").color)
 			for i in k:
 				b.box(Vector3(-0.2 + i * 0.1, 0.02, 0), Vector3(0.018, 0.006, 0.24), FIBER * (0.95 + 0.08 * (i % 2)), Basis(), "fiber")
-		"fiber_sack", "cloth_sack":
-			# Rows woven across the warp: fiber over cordage, or string over string.
-			var cloth: bool = recipe.out == "cloth_sack"
+		"fiber_sack", "cloth_sack", "bedroll":
+			# Rows woven across the warp: fiber over cordage, or string over
+			# string (a cloth sack, or a bedroll's coarse sheet).
+			var cloth: bool = recipe.out != "fiber_sack"
 			var warp: Color = Items.def("string").color if cloth else Assets.CORD
-			var weft: Color = Items.def("cloth_sack").color if cloth else FIBER
+			var weft: Color = Items.def(recipe.out).color if cloth else FIBER
 			for i in 4:
 				var x := -0.15 + i * 0.1
 				b.cylinder(Vector3(x, 0.012, -0.18), Vector3(x, 0.012, 0.18), 0.004 if cloth else 0.006, 0.004 if cloth else 0.006, 4, warp, Color(-1, 0, 0), "fiber")
@@ -1481,6 +1482,13 @@ func _rebuild_work() -> void:
 				Assets.stick(b, _rng, Vector3(-0.25, 0.012 + 0.02 * (i % 2), 0.3 + 0.025 * i), Vector3(0.25, 0.012 + 0.02 * (i % 2), 0.31 + 0.025 * i), 0.01)
 		"snare":
 			Assets.snare_kit(b, _rng, k / float(n))
+		"baitbox":
+			# The board until it is sawn, then the base and the sides pinned
+			# on, then the meat packed in.
+			if k == 0:
+				b.box(Vector3(0.0, 0.025, 0.0), Vector3(0.6, 0.05, 0.2), Items.def("board").color, Basis(), "wood")
+			else:
+				Assets.baitbox(b, _rng, Items.def("baitbox").color, k / float(n))
 		"compost_basket":
 			# Posts first, then the slats round the sides, course by course.
 			if k > 0:
@@ -1772,6 +1780,11 @@ func _target(out: String, k: int) -> Vector3:
 			return [Vector3(0.0, 0.48, 0.0), Vector3(-0.2, 0.24, 0.23), Vector3(0.42, 0.24, 0.0)][mini(k - 3, 2)] * FISH_TRAP_SIZE
 		"snare":
 			return [Vector3(0.4, 0.01, 0.0), Vector3(0.0, 0.035, 0.0), Vector3(0.28, 0.035, 0.0)][mini(k, 2)]
+		"baitbox":
+			# Saw the board, pin two sides, pin the other two, pack the meat.
+			var hw := Assets.BAITBOX_W * 0.5
+			return [Vector3(0.0, 0.05, 0.0), Vector3(0.0, Assets.BAITBOX_H, hw), Vector3(hw, Assets.BAITBOX_H, 0.0),
+					Vector3(0.0, Assets.BAITBOX_H, 0.0)][mini(k, 3)]
 		"compost_basket":
 			var hw := Assets.COMPOST_W * 0.5 * 0.45
 			if k < 2:
@@ -1821,7 +1834,7 @@ func _target(out: String, k: int) -> Vector3:
 			if k < 4:
 				return Vector3(-0.1, 0.03, 0) + [Vector3(-0.17, 0, -0.17), Vector3(0.17, 0, -0.17), Vector3(0.17, 0, 0.17), Vector3(-0.17, 0, 0.17)][k]
 			return Vector3(-0.1, 0.03, (k - 4.5) * 0.12)
-		"fiber_sack", "cloth_sack":
+		"fiber_sack", "cloth_sack", "bedroll":
 			return Vector3(-0.19, 0.02, -0.16 + k * 0.045)
 		"keycard_jr":
 			return Vector3(-0.13, 0.004 * (Items.recipe_steps(recipe) - k), 0)

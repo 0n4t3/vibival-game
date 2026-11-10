@@ -13,6 +13,7 @@ const DRAWN_NOTICE := 20.0 # an animal drawn by guts goes for a player this clos
 const LINGER := 180.0      # seconds it hangs about where the guts were once they are eaten
 const SCENT_RADIUS := 45.0 # blood in the water (meaty soup tipped out) draws amphibians this far
 const APPROACH_TIME := 120.0  # seconds one drawn by blood keeps coming before it gives up
+const FRENZY_RADIUS := 65.0   # a baitbox in the water draws big amphibians this far (frenzy)
 const SUFFOCATE := 90.0    # seconds a fish lives out of the water
 const AIR_MULT := 5.0      # a lungfish, which breathes air, lasts this many times as long
 
@@ -279,6 +280,9 @@ var _strike_t := 0.0
 var _lure := Vector3.ZERO        # amphibians: where a splash drew it
 var _provoked := 0.0             # ambusher: seconds it will chase further after being hit
 var _approach := 0.0             # amphibians: seconds left closing in on the scent of blood
+var _frenzy := 0.0               # amphibians: seconds left tearing at a baitbox (see frenzy)
+var _frenzy_at := Vector3.ZERO   # where the baitbox is
+var _frenzy_spot := Vector3.ZERO # where it is thrashing toward next, round the box
 var _stun := 0.0                 # small animals: seconds left dazed by a thrown rock
 var blown := 0.0                 # flyers: seconds left tumbling helplessly in a gale
 var carried_by: Node3D = null    # a lizard: the Meganeura flying off with it
@@ -843,6 +847,7 @@ func _process(delta: float) -> void:
 	_cd = maxf(_cd - delta, 0.0)
 	_state_t -= delta
 	_anger = maxf(_anger - delta, 0.0)
+	_frenzy = maxf(_frenzy - delta, 0.0)
 	if _stun > 0.0:
 		_stunned(delta)
 		return
@@ -1263,7 +1268,9 @@ func _think_lurker(player: Node3D, dist: float, delta: float) -> void:
 		"retreat":
 			goal = home if mode == "land" else water_home
 			spd = 3.2
-			if Vector2(global_position.x - goal.x, global_position.z - goal.z).length() < 1.5:
+			if _frenzy > 0.0:
+				state = "frenzy"  # back to the baitbox, if it is still there
+			elif Vector2(global_position.x - goal.x, global_position.z - goal.z).length() < 1.5:
 				state = "wander" if mode == "land" else "lurk"
 		"lunge":
 			# Snapping at a splash, then lurking there.
@@ -1312,6 +1319,16 @@ func _think_lurker(player: Node3D, dist: float, delta: float) -> void:
 					_prey.queue_free()
 					_prey = null
 					state = "wander"
+		"frenzy":
+			# Tearing at a baitbox; a player as close as would always set it
+			# off is charged as usual.
+			if _frenzy <= 0.0:
+				state = "lurk"
+			elif alive and _calm <= 0.0 and dist < trigger and _leash_ok(p_pos):
+				_charge()
+			else:
+				goal = _frenzy_goal()
+				spd = def.run if _far_from_frenzy() else def.speed * 3.0
 		"bask":
 			if Game.is_night():
 				mode = "lurk"
@@ -1333,7 +1350,10 @@ func _think_lurker(player: Node3D, dist: float, delta: float) -> void:
 						_target = water_home + Vector3(cos(a), 0, sin(a)) * _rng.randf_range(1.0, 6.0)
 				goal = _target
 				spd = def.speed
-	if state != "grab":
+	if state == "frenzy":
+		_steer(goal, spd, delta)
+		_thrash(delta)
+	elif state != "grab":
 		_body.rotation.z = lerpf(_body.rotation.z, 0.0, minf(delta * 4.0, 1.0))
 		_steer(goal, spd, delta)
 		if state == "charge" or state == "lunge":
@@ -1471,6 +1491,18 @@ func _think_ambusher(player: Node3D, dist: float, delta: float) -> void:
 					state = "stalk"
 			if state == "bask" and _rng.randf() < delta * 0.05:
 				_gape = 0.6
+		"frenzy":
+			# Tearing at a baitbox, up at the surface; a player as close as
+			# would always set off one up out of the mud is struck as usual.
+			if _frenzy <= 0.0:
+				state = "return"  # buries itself where the box was
+			elif _calm <= 0.0 and player != null and not player.vitals.dead and player.grabbed_by == null \
+					and dist < def.strike + 1.0 and _leash_ok(player.global_position) \
+					and _ground(player.global_position.x, player.global_position.z) < 0.6:
+				_strike(null)
+			else:
+				goal = _frenzy_goal()
+				spd = def.run * 0.8 if _far_from_frenzy() else def.speed * 4.0
 		"approach":
 			# Drawn by blood in the water: risen to the surface, it swims slowly
 			# in toward you, and strikes just as a buried one would once you
@@ -1577,10 +1609,15 @@ func _think_ambusher(player: Node3D, dist: float, delta: float) -> void:
 			state = "return"
 			goal = home
 			spd = 2.2
-			if Vector2(global_position.x - goal.x, global_position.z - goal.z).length() < 1.2:
+			if _frenzy > 0.0:
+				state = "frenzy"  # back to the baitbox, if it is still there
+			elif Vector2(global_position.x - goal.x, global_position.z - goal.z).length() < 1.2:
 				state = "bask" if mode == "bask" else "hide"
 				mode = state
-	if state != "grab":
+	if state == "frenzy":
+		_steer(goal, spd, delta)
+		_thrash(delta)
+	elif state != "grab":
 		_body.rotation.z = lerpf(_body.rotation.z, 0.0, minf(delta * 4.0, 1.0))
 		if spd > 0.0:
 			_steer(goal, spd, delta)
@@ -1658,6 +1695,76 @@ func lure(p: Vector3) -> bool:
 	submerged = false
 	_body.visible = true
 	return true
+
+
+func frenzy(at: Vector3, secs: float) -> bool:
+	## A baitbox in the water at `at` (swamp.start_frenzy): a Uranocentrodon or
+	## Eogyrinus within FRENZY_RADIUS drops whatever it was doing (unless it
+	## has hold of the player or a kill), rushes to it and tears at it for
+	## `secs`, then settles there. While it lasts it leaves the player alone,
+	## unless they come as close as would always set it off. False if it
+	## takes no notice.
+	if dead or not def.behavior in ["ambusher", "lurker"] \
+			or Vector2(at.x - global_position.x, at.z - global_position.z).length() > FRENZY_RADIUS:
+		return false
+	if state == "grab" or (def.behavior == "ambusher" and state == "feed"):
+		return false
+	if drawn:
+		_stop_feeding_guts()
+		drawn = false
+		bait = null
+		_linger = 0.0
+	_prey = null
+	_approach = 0.0
+	_frenzy = secs
+	_frenzy_at = at
+	if def.behavior == "ambusher":
+		mode = "hide"
+		home = Vector3(at.x, _ground(at.x, at.z), at.z)
+	else:
+		# One roaming on land stays a land animal (free to cross any ground),
+		# now at home round the box.
+		home = at
+		water_home = at
+	state = "frenzy"
+	submerged = false
+	_body.visible = true
+	_pick_frenzy_spot()
+	if _rng.randf() < 0.35:
+		Sfx.play_at("roar", global_position, 0.0, 0.15)
+	return true
+
+
+func _pick_frenzy_spot() -> void:
+	## Somewhere close round the baitbox to lunge at next.
+	var a := _rng.randf() * TAU
+	var r := _rng.randf_range(float(def.radius) * 0.5, float(def.radius) + 3.0)
+	_frenzy_spot = _frenzy_at + Vector3(cos(a), 0.0, sin(a)) * r
+	_state_t = _rng.randf_range(0.5, 1.5)
+
+
+func _far_from_frenzy() -> bool:
+	return Vector2(global_position.x - _frenzy_at.x, global_position.z - _frenzy_at.z).length() > float(def.radius) + 6.0
+
+
+func _frenzy_goal() -> Vector3:
+	## The spot it is lunging at round the baitbox (a new one now and then).
+	if _state_t <= 0.0 or Vector2(global_position.x - _frenzy_spot.x, global_position.z - _frenzy_spot.z).length() < 0.8:
+		_pick_frenzy_spot()
+	return _frenzy_spot
+
+
+func _thrash(delta: float) -> void:
+	## Rolling, snapping and splashing over the baitbox (or racing to it).
+	if _far_from_frenzy():
+		_body.rotation.z = lerpf(_body.rotation.z, 0.0, minf(delta * 4.0, 1.0))
+		_gape = lerpf(_gape, 0.4, minf(delta * 6.0, 1.0))
+		return
+	var t := Time.get_ticks_msec() * 0.001 + float(get_instance_id() % 997) * 0.1  # each out of step
+	_body.rotation.z = sin(t * 9.0) * 0.18
+	_gape = 0.45 + 0.45 * sin(t * 11.0)
+	if _rng.randf() < delta * 0.5:
+		Sfx.play_at("splash", global_position, -2.0, 0.3)
 
 
 func scent(at: Vector3, player: Node3D) -> bool:
@@ -2017,7 +2124,7 @@ func take_damage(amount: float, attacker: Node3D) -> void:
 			if state != "grab" and state != "retreat":
 				state = "charge"
 		"ambusher":
-			if state in ["bask", "stalk", "hide", "return", "lunge", "pursue"] and attacker != null and attacker == Game.player:
+			if state in ["bask", "stalk", "hide", "return", "lunge", "pursue", "frenzy"] and attacker != null and attacker == Game.player:
 				_provoked = 6.0
 				_strike(null)
 				_strike_t = 4.0

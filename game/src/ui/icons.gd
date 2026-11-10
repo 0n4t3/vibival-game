@@ -124,6 +124,22 @@ static func draw_item(ci: CanvasItem, r: Rect2, id: String) -> void:
 			ci.draw_rect(Rect2(o + Vector2(-s * 0.8, -s * 0.5), Vector2(s * 1.6, s * 1.3)), dark)
 			for i in 3:
 				ci.draw_rect(Rect2(o + Vector2(-s * 0.75, -s * 0.45 + i * s * 0.42), Vector2(s * 1.5, s * 0.3)), c)
+		"bedroll":
+			# A rolled-up bag from the side: the roll, its rolled end, two ties.
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.9, -s * 0.45), Vector2(s * 1.6, s * 0.9)), c)
+			ci.draw_circle(o + Vector2(s * 0.7, 0), s * 0.45, c.darkened(0.15))
+			ci.draw_arc(o + Vector2(s * 0.7, 0), s * 0.28, 0.0, TAU, 14, dark, maxf(s * 0.06, 1.0))
+			ci.draw_arc(o + Vector2(s * 0.7, 0), s * 0.12, 0.0, TAU, 10, dark, maxf(s * 0.06, 1.0))
+			for x in [-s * 0.5, s * 0.15]:
+				ci.draw_line(o + Vector2(x, -s * 0.47), o + Vector2(x, s * 0.47), Assets.CORD, maxf(s * 0.12, 1.5))
+		"baitbox":
+			# An open box seen from the front, meat heaped over the rim.
+			var meat: Color = Color(0.42, 0.36, 0.22) if id == "baitbox_rotten" else Items.def("raw_meat").color
+			_blob(ci, o + Vector2(-s * 0.2, -s * 0.3), s * 0.45, meat, 7)
+			_blob(ci, o + Vector2(s * 0.3, -s * 0.25), s * 0.35, meat.lightened(0.12), 6)
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.85, -s * 0.2), Vector2(s * 1.7, s * 1.0)), c)
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.85, -s * 0.2), Vector2(s * 1.7, s * 1.0)), dark, false, maxf(s * 0.08, 1.0))
+			ci.draw_line(o + Vector2(-s * 0.85, s * 0.3), o + Vector2(s * 0.85, s * 0.3), dark, maxf(s * 0.06, 1.0))
 		"sprout", "shoot":
 			ci.draw_arc(o + Vector2(0, -s * 0.2), s * 0.4, 0.0, TAU * 0.8, 16, c, s * 0.2)
 			ci.draw_line(o + Vector2(s * 0.4, -s * 0.2), o + Vector2(s * 0.3, s * 0.9), c, s * 0.2)

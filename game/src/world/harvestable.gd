@@ -6,7 +6,8 @@ extends StaticBody3D
 ## compost is worked in round it within FED_WITHIN of it being picked.
 ## A kind with `dig` can be dug up with a mattock (`dig_hits` swings): it is
 ## gone for good (Game.taken, so its chunk never makes it again), giving `dig`
-## and, if it is ripe, its `dig_ripe` yield too.
+## and, if it is ripe (not picked clean), a roll of its `dig_ripe` yield and
+## its `dig_ready` items too.
 
 const FEED_CUT := 0.3  # compost worked in round a growing plant cuts this much off the time it has left (plot.gd, stump.gd)
 const FED_WITHIN := 1440.0  # a game day: compost this soon after picking a planted kind with `fed_regrow` gives that regrow time
@@ -22,7 +23,14 @@ const KINDS := {
 		"dig": {"fern_root": 2}, "dig_ripe": "seed", "dig_hits": 2},
 	"fern": {"name": "Fern", "verb": "Strip fern", "mesh": "fern_ripe", "bare": "fern_stripped",
 		"yield": {"plant_fiber": [2, 3], "fiddlehead": [0, 2]}, "cut_bonus": "plant_fiber",
-		"regrow": [30.0, 50.0], "radius": 0.6, "height": 0.5},
+		"regrow": [30.0, 50.0], "radius": 0.6, "height": 0.5,
+		"dig": {"fern_spores": 1}, "dig_ready": {"fern_spores": 2}, "dig_hits": 1},  # 3 unpicked, 1 picked clean
+	# One grown from planted spores (plot.gd): it grows and grows back as fast
+	# as a planted seed fern, with smaller yields.
+	"planted_fern": {"name": "Fern", "verb": "Strip fern", "mesh": "fern_ripe", "bare": "fern_stripped",
+		"yield": {"plant_fiber": [1, 2], "fiddlehead": [0, 1]}, "cut_bonus": "plant_fiber",
+		"regrow": [5.0, 5.0], "fed_regrow": 2.5, "radius": 0.6, "height": 0.5,
+		"dig": {"fern_spores": 1}, "dig_hits": 1},
 	# The fresh crown of young fronds and fiddleheads up top shows which tree
 	# ferns can be cut (it is gone once cut).
 	"tree_fern": {"name": "Tree Fern", "verb": "Cut fronds", "mesh": "tree_fern_crown", "bare": "",
@@ -206,6 +214,9 @@ func dig() -> void:
 	if is_ready() and def.has("dig_ripe"):
 		var r: Array = def.yield[def.dig_ripe]
 		got[def.dig_ripe] = got.get(def.dig_ripe, 0) + _rng.randi_range(r[0], r[1])
+	if is_ready():
+		for id in def.get("dig_ready", {}):
+			got[id] = got.get(id, 0) + int(def.dig_ready[id])
 	var words := []
 	var world: Node = Game.player.world if Game.player else null
 	for id in got:

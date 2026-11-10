@@ -280,11 +280,19 @@ func _start_wood_work(wood: Node3D, tree: Dictionary) -> void:
 		return
 	var yaw := atan2(side.x, side.z)  # facing the wood: local +Z back toward you
 	var stand := centre + side * (r + 1.2)
-	var sg := ground_height(stand.x, stand.z)
-	player.global_position = Vector3(stand.x, sg if sg > -INF else player.global_position.y, stand.z)
+	# On a house's floor (wood brought indoors) you kneel there, not on the
+	# ground under it.
+	var sg := floor_height(Vector3(stand.x, p.y, stand.z))
+	var up := floor_height(p) > ground_height(p.x, p.z) + 0.5  # standing on a floor now
+	if up and sg < p.y - 0.5:
+		stand = p  # that spot is off the floor (past a wall): kneel where you are
+		sg = p.y
+	player.global_position = Vector3(stand.x, sg if sg > -INF else p.y, stand.z)
 	player.velocity = Vector3.ZERO
 	player.rotation.y = yaw
-	var g := ground_height(at.x, at.z)
+	var g := floor_height(Vector3(at.x, player.global_position.y, at.z))
+	if up and g < player.global_position.y - 0.5:
+		g = player.global_position.y
 	at.y = g if g > -INF else player.global_position.y
 	work = WorkSpot.new()
 	work.where = where

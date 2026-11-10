@@ -40,6 +40,7 @@ const WATER_DRAIN := 100.0 / 1800.0      # ~30 min
 const NUTRIENT_DRAIN := 100.0 / 4500.0   # ~3 days
 const LOW := 25.0                        # nutrient level that counts as deficient
 const SLEEP_DRAIN := 0.6                 # energy and water drain while asleep
+const BEDROLL_HEAL := 1.5                # asleep on a bedroll: blood, wounds, sickness and venom mend this much faster
 
 ## How bad the worst condition is: harm at or over each of these is that tier.
 ## 1: no sprinting. 2: slow, carries less. 3: going blind. At 1.0, dead.
@@ -162,6 +163,7 @@ var cause := ""     # what killed you: blood, venom, infection, starving, thirst
 var _hunger_was := 0  # hunger and thirst levels last tick, to say when they get worse
 var _thirst_was := 0
 var dead := false
+var on_bedroll := false   # asleep on a bedroll (swamp.sleep): heals faster (BEDROLL_HEAL); not saved
 var god := false        # takes no damage (dev --god, or a debug world's switch)
 var no_needs := false   # never hungry, thirsty or out of breath (debug world)
 
@@ -370,7 +372,7 @@ func tick(delta: float, sprinting: bool, swimming: bool, wading := false, sleepi
 		stamina = max_stamina()
 		sprinting = false
 		swimming = false
-	var rest := 3.0 if sleeping else (1.5 if still else 1.0)
+	var rest := 3.0 * (BEDROLL_HEAL if on_bedroll else 1.0) if sleeping else (1.5 if still else 1.0)
 	var exertion := 1.6 if sprinting or swimming else 1.0
 	if sleeping:
 		exertion = SLEEP_DRAIN
@@ -463,7 +465,7 @@ func _tick_wounds(delta: float, wet: bool, sleeping: bool) -> float:
 	## Advances bleeding, dirt, infection and healing. Returns blood lost.
 	var lost := 0.0
 	var resist := 2.0 if greens < LOW else 1.0
-	var heal: float = 0.0006 * nutrition() * (0.4 if protein < LOW else 1.0) * (3.0 if sleeping else 1.0) * heal_mult() \
+	var heal: float = 0.0006 * nutrition() * (0.4 if protein < LOW else 1.0) * (3.0 * (BEDROLL_HEAL if on_bedroll else 1.0) if sleeping else 1.0) * heal_mult() \
 			* HUNGER_HEAL[hunger_level()]
 	for i in wounds.size():
 		var w: Dictionary = wounds[i]

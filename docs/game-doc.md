@@ -64,7 +64,7 @@ Paths are relative to `game/` unless they start with `tools/` or `docs/`.
 | `src/world/guts.gd` | A guts pile: saved, lasts a day, draws scavengers |
 | `src/world/stump.gd` | A felled tree's stump: regrows into the tree, dug out with a mattock; a lightning-struck one burns, glows, stays charred; a planted young tree; shoots |
 | `src/world/plot.gd` | Farming: a hole dug with a mattock and a young seed fern growing in it |
-| `src/world/compost.gd` | A compost basket: filled to 20, composts for 15–60 days, gives compost; meat draws pests |
+| `src/world/compost.gd` | A compost basket: filled to 20, composts for 5–15 days, gives compost; meat draws pests |
 | `src/world/trap.gd` | A fish trap (carried, set in water) or a snare (set on land): baited, catches while you sleep, holds a live medium animal |
 | `src/world/intro.gd` | The arrival: the lightning strike and a white flash, lying on your back, the dragonfly flyover, getting up |
 | `src/world/felled_tree.gd` | A felled trunk lying in one piece: falls, rots, is cut into logs |
@@ -312,7 +312,13 @@ The important ones:
 - `place` (placeable kind), `throw`, `hold` / `empty` (water containers),
   `treat` (`clean`, `alcohol`, `bandage`, `wax`), `light` (a held light, range in m),
   `splat` (guts: thrown or dropped, it becomes a guts pile on land, or a
-  splash lure in water).
+  splash lure in water), `frenzy` (a baitbox: seconds of feeding frenzy when
+  thrown into water, see "Baitbox").
+- `as` (counts as that item in recipes, `Items.counts_as`). Besides real
+  items ("board", "pot_dirty"), it can name a group item that is never found
+  and only stands in recipes: `small_fish` (any small fish) and
+  `any_raw_meat` ("Raw Meat or Fish": `raw_meat` and `fish_meat`, for the
+  baitbox).
 
 `RECIPES` entries have `out`, `n`, `in` (consumed), `tools` (needed, kept),
 `where` (lab or swamp), `tier` (hand, workbench, metal), `cat` (one of
@@ -358,7 +364,8 @@ game time when ready again).
 
 | Kind | Yield | Regrow (game days, rolled per harvest) |
 |---|---|---|
-| fern | 2–3 fiber (+2 with a cut tool), 0–2 fiddleheads | 30–50 |
+| fern | 2–3 fiber (+2 with a cut tool), 0–2 fiddleheads (dug up: 3 fern_spores, 1 if picked clean) | 30–50 (dug up: never) |
+| planted_fern | 1–2 fiber (+2 with a cut tool), 0–1 fiddlehead (dug up: 1 fern_spores) | 5, or 2.5 fed within a day (dug up: never) |
 | tree_fern | 1–2 fronds, 1–2 fiber | 3 |
 | seed_fern | 2–4 seeds, 0–1 frond (dug up: 4 fern_root, + its seeds if ripe) | 5 (dug up: never) |
 | planted_seed_fern | 1–2 seeds (dug up: 2 fern_root, + its seeds if ripe) | 5, or 2.5 fed within a day (dug up: never) |
@@ -366,13 +373,25 @@ game time when ready again).
 | clay_bank | 2–4 clay | 1.5–2.5 |
 
 `regrow` in `KINDS` is a `[min, max]` range in days; `regrow_time()` rolls it.
-A kind with `dig` (the seed fern) is dug up by a `dig` tool's swing
-(`player._attack` → `dig()`), `dig_hits` (2) swings: it gives `dig`
-(`fern_root` ×4) and, if `is_ready()`, a roll of its `dig_ripe` yield
-(seeds), sets `Game.taken[uid]` (saved) and is freed; `chunk._add_harvestable`
+A kind with `dig` (the seed fern, the fern) is dug up by a `dig` tool's swing
+(`player._attack` → `dig()`), `dig_hits` swings (seed fern 2, fern 1): it
+gives `dig` (seed fern: `fern_root` ×4; fern: `fern_spores` ×1) and, if
+`is_ready()`, a roll of its `dig_ripe` yield (seed fern: seeds) and its
+`dig_ready` items (fern: 2 more spores, so 3 unpicked, 1 picked clean), sets `Game.taken[uid]` (saved) and is freed; `chunk._add_harvestable`
 skips a taken uid, after the chunk's rolls so nothing else moves.
 `fern_root` (energy 0.5, greens 8, keeps 3 days) and `seed` have `plant`
-"seed_fern" (see Farming). A planted kind's uid is its planting's: `dig()`
+"seed_fern" (see Farming); `fern_spores` (not food, don't spoil) have
+`plant` "fern", growing for the same `GROW_DAYS` into a `planted_fern`,
+which grows back like a planted seed fern (5 days, 2.5 fed).
+The decorative ferns (`DECOR` "fern", ground cover with no collision) can
+be torn out with a mattock for nothing: a swing whose ray meets the ground
+(within 0.6 m of `ground_height`) and no dig or break target calls
+`swamp.clear_fern(point)`. That checks the point's chunk then its neighbours
+(`chunk.clear_fern(p, FERN_REACH)`, 0.8 m): the nearest fern in
+`chunk.decor_ferns` is scaled to nothing and `Game.taken[Chunk.fern_key(x,
+z)]` ("d" + its position in decimetres) is set. A rebuilt chunk skips a
+taken fern only after rolling it, so no other plant moves, and the key goes
+by position, so it stays gone at any graphics quality. A planted kind's uid is its planting's: `dig()`
 erases `Game.plantings[uid]` instead of setting `Game.taken`.
 Half the tree ferns are harvestable. Those carry a `tree_fern_crown` mesh
 (bright young fronds and fiddleheads) at the top of the trunk, passed in by
@@ -404,18 +423,20 @@ rotten one is what is saved. A `_carcass` item (`carcass()`) never spoils
 on the ground: it keeps its age (the time since the kill, so picked up late
 it spoils in the bag) and is freed once that reaches `DAY_LENGTH`.
 
-**Shore stones** (`swamp._update_shore`, every 1.5 s): `SHORE_ITEMS` (11)
+**Shore stones** (`swamp._update_shore`, every 1.5 s): `SHORE_ITEMS` (18)
 sticks (`_shore_kind`: `SHORE_STICK` 30%, anywhere), river stones and chert
 (`SHORE_CHERT` 30%) and salt crusts are kept within `SHORE_RANGE`
-(100 m) of the player, on ground between -0.25 and 0.3 m within 4 m of swamp
-water (`shore_spot`). Each lies there for `SHORE_LIFE` 1–3 days and is then
+(100 m) of the player, on ground between -0.25 and `SHORE_ITEM_TOP` (0.6 m)
+within `SHORE_ITEM_REACH` (8 m) of swamp water (`shore_spot`, whose own
+defaults, used by creatures, stay 0.3 m and 4 m). Each lies there for `SHORE_LIFE` 1–3 days and is then
 freed; ones over 200 m away go too. A new one washes up about every
 `DAY_LENGTH * 2 / SHORE_ITEMS` (randomised), or every 30 s while fewer than
 half are left. A new world seeds the full set. They are saved in
 `_world_state` → `"shore"` with their expiry. A picked-up one leaves the list
 (and dropped again, it is an ordinary kept drop). Each wash-up
-(`_wash_up`) is a salt crust `SHORE_SALT` (15%) of the time: it looks for a
-spot on dry bank (`shore_spot(..., dry)`: at least 3 cm above `water_level()`)
+(`_wash_up`) is a salt crust `SHORE_SALT` (35%) of the time: it looks for a
+spot on dry bank (`shore_spot(..., dry)`: at least 3 cm above `water_level()`,
+within `SHORE_SALT_REACH` (6 m) of the edge)
 with four times the tries, and if none turns up a stick or stone comes
 instead. A crust sits on whichever is higher, the terrain or the ground as
 drawn (`drawn_height`: the mesh is coarser than the height function at low
@@ -681,14 +702,23 @@ for dev and tests.
   house: logs back via `add_log`, everything else as piles, and anything
   standing on its floor dropped to the ground.
 - **Floor**: `swamp.floor_height(p)` is the max of the ground and any
-  house's `floor_top(p)` below p; stashes, piles, drops, the bench and work
-  spots use it. Campfires are refused on a wooden floor.
+  house's `floor_top(p)` below p (only when p is up at the floor: from
+  0.8 m under it to `WALL_H` + 1 above). Stashes, piles, drops, the bench,
+  work spots, `add_log`, `add_soup_pot`, `add_vessel` and `add_guts` all use
+  it, so a pos passed at floor level (a saved position, a bench's spot, a
+  log being cut) stays on the floor, and a reload puts things back there.
+  `add_guts` only adds to a pile within 1 m of the same height. Kneeling at
+  wood (`_start_wood_work`) stands you at `floor_height` at your own height,
+  and kneels where you are if the usual spot is off the floor. Campfires are
+  refused on a wooden floor.
 - **Ladder**: `player._ladder` (close to `LADDER`, facing in or out) sets
   `climbing`; the climb runs in house space at `CLIMB` m/s and steps you
   onto the porch at the top. Anything hauled comes too: `_hold_haul` slings
   it on your back, out from the house, there is no prompt and `put_down`
   refuses. Hauled things set down (logs, carcasses, soup pots, vessels)
-  stand at `floor_height`, so on a house's floor, and a dragged carcass
+  stand at `floor_height`, so on a house's floor. Set down while you stand
+  on a floor, `player._keep_on_floor` first draws one held out past a wall
+  or the porch's edge back toward you until it is over the floor, and a dragged carcass
   follows the floor too; a log's `in_water` goes by the floor. The fireplace
   is in `Game.fires`, so a pot or vessel put down within `HANG_R` of it
   hangs over it (`--house=all --soup-pot` shows one there).
@@ -703,6 +733,36 @@ for dev and tests.
   to the fireplace.
 - **Saving**: `"houses"`: `to_dict` ({pos, yaw, built, fire}), restored
   before stashes so they land on the floor.
+
+### Bedroll (`src/world/bedroll.gd`, `swamp._place_bedroll`)
+
+`bedroll` (by hand, `known_by` spindle, Gear, 8 string, 8 steps woven like
+the cloth sack) has `place` "bedroll". `swamp._place_bedroll` tries 1.0 m,
+0.6 m and 0 m in front of the player. A spot counts only if it is in the
+room of a finished house (`House.room_spot(p, inset)`: complete, on its
+floor, inside the walls by half the roll's `LENGTH`, not the porch), and not
+within 1 m of a built fireplace's `HEARTH`. It is never unrolled: set down on the floor
+(`floor_top`) across the player's view, it is a `StaticBody3D` on layer 2
+(group "bedrolls", saved as `_world_state` → `"bedrolls"`: pos, yaw). It
+looks like `Assets.bedroll`: a burlap roll, rolled layers at its ends, two
+cord ties.
+
+Looking at it:
+- **Sleep** (`player._unhandled_input` → `focus.sleep_on` →
+  `swamp.sleep_on_bedroll`): lies down at once, with no confirming second
+  press, if `sleep_blocker` allows (tired: `Game.can_sleep_in`, not hunted,
+  not bleeding badly...). It calls `sleep(true)`, which sets
+  `vitals.on_bedroll` for `_pass_time`. Asleep on a bedroll, the rest factor
+  (blood, sickness, venom) and wound healing are `Survival.BEDROLL_HEAL`
+  (1.5×) the usual sleep rate. Sprains and fractures still mend one step a
+  sleep.
+- **Interact** (`swamp.save_at_bedroll`): `save_now()` without sleeping,
+  unless `suspend_blocker` says no (hunted, in jaws).
+- **Right-click** (`use_interact`): back into the bag.
+
+When a house is torn down (`_drop_what_stands_here`), a bedroll in it
+becomes a dropped `bedroll` item on the ground. `Settings.hint` now turns
+"[Z]" into the sleep button.
 
 ## Fire (`src/world/campfire.gd`)
 
@@ -914,6 +974,41 @@ over 1.5 × `SCENT_RADIUS` away, an ambusher buries itself where it is and a
 lurker lurks there. `"approach"` counts as hunting for `_hunted`. Those
 already within striking reach are left alone: they strike as usual.
 
+### Baitbox (`swamp.start_frenzy`, `creature.frenzy`, `baitbox.gd`)
+
+`baitbox` (bench, rack `woodworking_tools`, Traps: 1 board + 2
+`any_raw_meat`, 4 steps) is a `throw` item with `frenzy` 30 s. It has raw
+meat's `decay` (900 s) and spoils into `baitbox_rotten` (`frenzy` 15 s). A
+crafted one starts fresh, like meat bait; a thrown one keeps its age
+(`ThrownRock.age`).
+
+Thrown (`thrown_rock.gd`), it hurts nothing it hits. If it comes down in
+water (ground below `water_level()`) it makes rings (`ripple`, not a
+`splash` lure) and calls `swamp.start_frenzy(at, frenzy, id)`. On land it is
+a kept pickup. `start_frenzy` adds a `baitbox.gd` node that bobs and churns
+the water (a ripple every 0.4–0.9 s) and sinks over 3 s when the frenzy ends.
+It calls `frenzy(at, secs)` on every creature, and remembers the spot and
+time left (`_frenzy_at`, `_frenzy_left`), so an amphibian that
+`spawn_amphibian` makes while it lasts joins in. None of this is saved.
+
+`frenzy()` takes any ambusher or lurker within `FRENZY_RADIUS` (65 m), except
+one with hold of the player (`grab`) or an ambusher carrying a kill (`feed`).
+It drops guts it was `drawn` to and any prey or blood scent. The ambusher's
+`home` (mode `hide`) or the lurker's `water_home` and `home` (mode kept, so
+one roaming on land can cross any ground) move to the box, and it enters
+state `"frenzy"` (surfaced, visible; 35% roar). It races there (ambusher
+0.8 × `run`, lurker `run`) until within `radius` + 6 m, then lunges at random
+spots round the box (`_pick_frenzy_spot`: `radius` × 0.5 to `radius` + 3 m,
+a new one every 0.5–1.5 s), rolling, snapping and now and then splashing
+(`_thrash`). It ignores other animals. It still attacks the player as it
+normally would, if not `_calm`: an ambusher `_strike`s within `strike` + 1
+of a player on low ground (it is surfaced, so not the buried `ambush`
+reach); a lurker `_charge`s within its trigger. A `retreat`/`return` (a failed
+charge, a released grab) goes back to `"frenzy"` while time is left. When
+the frenzy ends, an ambusher returns to the box and buries itself there, and
+a lurker lurks there. `"frenzy"` is not hunting for `_hunted`, and `lure` and
+`scent` ignore animals in it.
+
 ## Torches and wax
 
 - **Waxy Residue**: 1 frond crushed with a river stone (steps recipe, 4
@@ -1110,8 +1205,8 @@ axe (none yet). Trees stand `SINK` (0.2 m) into the ground.
   `"logs"`.
 - **Working logs**: C beside a loose log (`swamp.wood_ahead`) offers the
   WOODWORK entries for its id. `strip` (4 steps) gives `bark` 6 and `branch` 3
-  and `set_id("log_stripped")`; `shorten` (6) leaves four `short_log`s end to
-  end; `hew` (6, stripped only) gives 4 boards of the log's tree
+  and `set_id("log_stripped")`; `shorten` (6, barked only: short logs keep their
+  bark) leaves four `short_log`s end to end; `hew` (6, stripped only) gives 4 boards of the log's tree
 (`board_<kind>`, each its wood's colour, with `as` "board" so any of them
 does in a recipe: `Items.counts_as`, `work_spot.laid` and `_take_pile`,
 `Inventory.count_as`; a plain `board` is from an old save); `split` (3, short log) gives
@@ -1187,9 +1282,9 @@ woodworking tools racked) sets down a `Compost` node (layers 1|2, group
 slow, meat, done_at). `Compost.worth(id)`: branch 4, log or stripped log 10,
 grubs (raw, roasted or cured) 1, stick, guts and `*_carcass` 2, any item
 with `energy` that isn't `Items.is_drink_container` 2, else 0. `add(id)` raises `level` (capped at `FULL`, 20), sets `slow` to the
-largest `WOODY` factor (stick and branch 2, logs 4) and `meat` if
+largest `WOODY` factor (stick and branch 2, logs 3) and `meat` if
 `is_meat(id)` (protein, guts or a carcass, not grubs). At `FULL`, `done_at` =
-now + `DAYS` (15) × `slow` days. Done, E gives `YIELD` (5) compost (piled if
+now + `DAYS` (5) × `slow` days: 5, 10 or 15. Done, E gives `YIELD` (5) compost (piled if
 the bag is full) and resets it. E with an empty hand on an empty basket picks
 it up. A carried log (`wood_log.haul_prompt` / `haul_interact`, within 2.2 m
 via `swamp.compost_near`) goes in from your arms. After each sleep,
@@ -1366,6 +1461,7 @@ under gravity, with air drag toward `world.wind` (`WIND_DRAG`), and stops at
 the first creature, trunk, boulder, ground or water. Small animals are stunned 2.5 s (a dragonfly drops its lizard); a big
 amphibian hit directly comes for you; a splash lures amphibians within 12 m
 that aren't already after the player. The stone becomes a pickup that is not saved.
+A `frenzy` item (baitbox) is different: see "Baitbox".
 
 ## Sleep, weather and saving
 
@@ -1402,7 +1498,8 @@ that aren't already after the player. The stone becomes a pickup that is not sav
   a carcass within 20 m), insect bites and leeches near water, chills in rain,
   floods on low wet ground. An attack wakes you early; surviving 30 s saves.
 - **Camp save**: every sleep saves, a nap by day as well as a night's
-  sleep (`Game.saved_night` records the night, -1 by day). **Suspend save**: save and quit, used once by
+  sleep (`Game.saved_night` records the night, -1 by day). A bedroll also
+  saves without sleeping (see "Bedroll"). **Suspend save**: save and quit, used once by
   Continue. Each named world has its own folder under `user://worlds`.
 - **Export and import**: `Game.export_world(id)` is one JSON text (`kind`
   "vibival-world", `version`, the world.json as `world`, and its camp and
@@ -1419,7 +1516,7 @@ that aren't already after the player. The stone becomes a pickup that is not sav
   type=file>` (`_web_upload`).
 - **What is saved** (`Game.take_save` + `swamp._world_state`): seed, clock,
   inventory, taken and harvested uids, hints, tiers, player position and
-  vitals, fires (with cooking and ash), soup pots, stashes, dropped items, carcasses,
+  vitals, fires (with cooking and ash), soup pots, stashes, bedrolls, dropped items, carcasses,
   guts piles, shore stones, waypoint, rain and rare weather. Living
   creatures are not saved.
 - **Debug worlds**: `Game.create_world(name, id, debug_world)` writes
