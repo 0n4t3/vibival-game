@@ -79,7 +79,7 @@ func _ready() -> void:
 
 	var w := _row(vb, "Weather")
 	_weather = OptionButton.new()
-	_weathers = ["rain"] + Array(Weather.KINDS)
+	_weathers = ["rain"] + Array(Weather.ALL_KINDS)
 	for k in _weathers:
 		_weather.add_item("Rain" if k == "rain" else Weather.NAMES[k])
 	_weather.size_flags_horizontal = Control.SIZE_EXPAND_FILL

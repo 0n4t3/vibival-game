@@ -195,10 +195,10 @@ func _stilt_wood() -> bool:
 
 
 func _stilt_site(player: Node) -> Node3D:
-	## A house site close by whose next part is a stilt.
-	if world == null or not world.has_method("house_at") or player == null:
+	## A house, dock or raft site close by whose next part takes a log.
+	if world == null or not world.has_method("site_at") or player == null:
 		return null
-	var h: Node3D = world.house_at(player.global_position, 3.0)
+	var h: Node3D = world.site_at(player.global_position, 3.0)
 	return h if h and not h.complete() and h.wants_log() else null
 
 

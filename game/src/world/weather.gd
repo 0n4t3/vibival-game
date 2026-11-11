@@ -1,7 +1,9 @@
 extends Node3D
-## Rare weather. From day 3 on, each day has a 1-in-5 chance of one unusual
+## Rare weather. From day 3 on, each day has a 1-in-3 chance of one unusual
 ## event: dense fog, an aurora, a very bright moon, a meteor shower, a
-## thunderstorm, high winds or wildfire smoke. The night-sky events last the
+## thunderstorm, high winds or wildfire smoke; from day 10, a daytime meteor
+## shower of fireballs too. About half of all meteor showers (and always the
+## first after you have cast copper) bring a meteorite down (swamp.meteor_fall). The night-sky events last the
 ## whole night; the others 6-12 minutes at some time of the day. Ordinary rain
 ## is left to the swamp.
 ##
@@ -11,9 +13,17 @@ extends Node3D
 
 const KINDS := ["fog", "aurora", "bright_moon", "meteors", "thunderstorm", "wind", "smoke"]
 const NIGHT_KINDS := ["aurora", "bright_moon", "meteors"]
+const DAY_KINDS := ["day_meteors"]   # join the pool from DAY_METEORS_FROM (metals.md)
+const ALL_KINDS := KINDS + DAY_KINDS
+const SHOWERS := ["meteors", "day_meteors"]
+const DAY_METEORS_FROM := 9          # Game.day() is 0-based: day 10
+const FALL_CHANCE := 0.5             # of a shower bringing down a meteorite (always the first after casting copper)
+const FIREBALL_LIFE := [3.0, 5.0]
+const FIREBALL_EVERY := [12.0, 35.0]
 const NAMES := {
 	"fog": "Dense fog", "aurora": "Aurora", "bright_moon": "Bright moon", "meteors": "Meteor shower",
 	"thunderstorm": "Thunderstorm", "wind": "High winds", "smoke": "Wildfire smoke",
+	"day_meteors": "Daytime meteor shower",
 }
 const START_TEXT := {
 	"fog": "A thick fog rolls in off the water.",
@@ -23,6 +33,7 @@ const START_TEXT := {
 	"thunderstorm": "Thunder rumbles. A storm is coming.",
 	"wind": "The wind picks up, roaring through the trees.",
 	"smoke": "The air turns hazy and red. Somewhere, the forest is burning.",
+	"day_meteors": "Fireballs streak across the daytime sky, trailing smoke.",
 }
 # A night-sky event shows faintly from the start of dusk (DUSK_START), before
 # it begins in the dark: a hint of what is coming.
@@ -37,7 +48,7 @@ const END_TEXT := {
 	"smoke": "The smoke clears.",
 }
 const FIRST_DAY := 2         # Game.day() is 0-based: day 3
-const CHANCE := 0.2          # of an event on any one day
+const CHANCE := 0.33         # of an event on any one day
 const LENGTH := [360.0, 720.0]
 const FADE := 30.0           # seconds to come and go
 const DUSK_START := 1140.0   # clock: dusk begins (solar 0.7), when HINT_TEXT shows
@@ -58,12 +69,16 @@ var flash := 0.0        # lightning, 0..1
 var wind_dir := Vector3.FORWARD
 var wind_speed := 0.0
 var strikes := 0        # lightning strikes so far this storm
+var fall_at := -1.0     # seconds into this shower when a meteorite comes down, or -1
+var cast_fall_done := false  # the shower after casting copper has dropped its sure meteorite
 
 var _rng := RandomNumberGenerator.new()
 var _time := 0.0
 var _bolt_t := 0.0
 var _meteor_t := 0.0
-var _meteors := []      # [{a, b, t, life}]
+var _meteors := []      # [{a, b, t, life, fire}]: a fireball is bigger and slower, with a smoke trail
+var _fireball_t := 0.0
+var _boom := []         # [seconds until heard, volume]
 var _radiant := 0.0     # azimuth the meteors come from
 var _bolt := PackedVector3Array()
 var _bolt_life := 0.0
@@ -124,7 +139,8 @@ func roll_day(day: int) -> String:
 	## Whether a day gets an event, and which: "" for an ordinary day.
 	if day < FIRST_DAY or _rng.randf() >= CHANCE:
 		return ""
-	return KINDS[_rng.randi() % KINDS.size()]
+	var pool: Array = ALL_KINDS if day >= DAY_METEORS_FROM else KINDS
+	return pool[_rng.randi() % pool.size()]
 
 
 func day_start(day: int) -> float:
@@ -170,6 +186,15 @@ func start(k: String, seconds := -1.0) -> void:
 		wind_speed = _rng.randf_range(WIND_SPEED[0], WIND_SPEED[1]) * (1.0 if k == "wind" else 0.45)
 	if k == "wind":
 		_wind_sound.play()
+	fall_at = -1.0
+	if k in SHOWERS:
+		# Whether this one brings a meteorite down, and when.
+		var sure := Game.copper_cast and not cast_fall_done
+		if sure or _rng.randf() < FALL_CHANCE:
+			fall_at = _rng.randf_range(0.15, 0.6) * seconds
+			if sure:
+				cast_fall_done = true
+		_fireball_t = _rng.randf_range(3.0, 8.0)
 	Game.notify(START_TEXT[k])
 
 
@@ -211,6 +236,11 @@ func update(delta: float) -> void:
 	if kind != "":
 		left -= delta
 		fade = minf(fade + delta / FADE, minf(1.0, maxf(left, 0.0) / FADE))
+		if fall_at >= 0.0 and kind in SHOWERS:
+			fall_at -= delta
+			if fall_at <= 0.0:
+				fall_at = -1.0
+				_fall(delta > 1.0)
 		if left <= 0.0:
 			_finish(false)
 	else:
@@ -333,7 +363,53 @@ func _night() -> float:
 	return 1.0 - smoothstep(-0.25, 0.02, elev)
 
 
+func _fall(asleep: bool) -> void:
+	## A fireball that comes all the way down (swamp.meteor_fall): seen
+	## streaking that way if you are awake, then a boom delayed by distance.
+	var a := _rng.randf() * TAU
+	var dir := Vector3(cos(a), 0, sin(a))
+	var at: Vector3 = swamp.meteor_fall(dir) if swamp and swamp.has_method("meteor_fall") else Vector3.INF
+	if not at.is_finite():
+		return
+	var cam := _camera_pos()
+	var d := Vector2(at.x - cam.x, at.z - cam.z).length()
+	if asleep:
+		Game.notify("In your sleep you heard a great boom from the %s." % compass(at - cam))
+		return
+	# The streak, from high behind you down to the horizon where it fell.
+	var to := Vector3(at.x - cam.x, 0, at.z - cam.z).normalized()
+	var from := (-to * 0.4 + Vector3.UP).normalized()
+	_meteors.append({"a": from, "b": (to + Vector3.UP * 0.02).normalized(), "t": 0.0, "life": 2.5, "fire": true})
+	flash = maxf(flash, 0.35)
+	_boom.append([clampf(d / 343.0, 0.3, 5.0) + 2.5, lerpf(6.0, -4.0, clampf(d / 300.0, 0.0, 1.0))])
+	Game.notify("A fireball tears down out of the sky to the %s!" % compass(at - cam))
+
+
+static func compass(v: Vector3) -> String:
+	## "north-east" and so on (north is -z, east is +x).
+	var names := ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
+	var a := atan2(v.x, -v.z)
+	return names[posmod(roundi(a / (TAU / 8.0)), 8)]
+
+
 func _update_meteors(delta: float) -> void:
+	for b in _boom.duplicate():
+		b[0] -= delta
+		if b[0] <= 0.0:
+			Sfx.play("thunder", b[1], 0.3)
+			_boom.erase(b)
+	if kind == "day_meteors" and fade > 0.3:
+		# A few big fireballs by day, every few tens of seconds.
+		_fireball_t -= delta
+		if _fireball_t <= 0.0:
+			_fireball_t = _rng.randf_range(FIREBALL_EVERY[0], FIREBALL_EVERY[1])
+			var az := _rng.randf() * TAU
+			var el := _rng.randf_range(0.5, 1.1)
+			var a := Vector3(cos(az) * cos(el), sin(el), sin(az) * cos(el))
+			var az2 := az + _rng.randf_range(-0.6, 0.6)
+			var b := Vector3(cos(az2) * 0.95, _rng.randf_range(0.05, 0.25), sin(az2) * 0.95).normalized()
+			_meteors.append({"a": a, "b": b, "t": 0.0, "life": _rng.randf_range(FIREBALL_LIFE[0], FIREBALL_LIFE[1]), "fire": true})
+			_boom.append([_rng.randf_range(4.0, 9.0), _rng.randf_range(-14.0, -6.0)])
 	if kind == "meteors" and _night() > 0.3:
 		_meteor_t -= delta
 		if _meteor_t <= 0.0:
@@ -345,10 +421,10 @@ func _update_meteors(delta: float) -> void:
 			var away := (dir - Vector3(cos(_radiant), 1.6, sin(_radiant)).normalized()).normalized()
 			var b := (dir + away * _rng.randf_range(0.15, 0.4)).normalized()
 			if b.y > 0.08:
-				_meteors.append({"a": dir, "b": b, "t": 0.0, "life": _rng.randf_range(0.4, 1.0)})
+				_meteors.append({"a": dir, "b": b, "t": 0.0, "life": _rng.randf_range(0.4, 1.0), "fire": false})
 	for m in _meteors.duplicate():
 		m.t += delta
-		if m.t >= m.life:
+		if m.t >= m.life + (6.0 if m.fire else 0.0):  # a fireball's smoke trail hangs a while
 			_meteors.erase(m)
 
 
@@ -374,7 +450,17 @@ func _update_visuals() -> void:
 	if not _meteors.is_empty():
 		_streak_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 		for m in _meteors:
-			var k: float = m.t / m.life
+			var k: float = minf(m.t / m.life, 1.0)
+			if m.fire:
+				# A bright head, and a long pale smoke trail fading where it has been.
+				var smoke := clampf(1.0 - (m.t - m.life) / 6.0, 0.0, 1.0) if m.t > m.life else 1.0
+				var start: Vector3 = cam + (m.a as Vector3) * r * 0.95
+				var fhead: Vector3 = cam + (m.a as Vector3).slerp(m.b, k) * r * 0.95
+				_ribbon(fhead, start, to_cam.call(fhead), r * 0.004, Color(0.75, 0.74, 0.72) * 0.6 * smoke, Color(0.4, 0.4, 0.4) * 0.2 * smoke)
+				if m.t < m.life:
+					var ftail: Vector3 = cam + (m.a as Vector3).slerp(m.b, maxf(k - 0.06, 0.0)) * r * 0.95
+					_ribbon(fhead, ftail, to_cam.call(fhead), r * 0.012, Color(1.0, 0.85, 0.55) * 3.0, Color(1.0, 0.5, 0.2) * 0.8)
+				continue
 			var head: Vector3 = cam + (m.a as Vector3).slerp(m.b, k) * r * 0.95
 			var tail: Vector3 = cam + (m.a as Vector3).slerp(m.b, maxf(k - 0.25, 0.0)) * r * 0.95
 			var bright: float = sin(PI * k) * night * fade
@@ -493,6 +579,7 @@ func to_dict() -> Dictionary:
 		"kind": kind, "left": left, "planned": planned, "planned_at": planned_at,
 		"planned_len": planned_len, "rolled_day": rolled_day, "hinted": hinted,
 		"wind_dir": [wind_dir.x, wind_dir.z], "wind_speed": wind_speed,
+		"fall_at": fall_at, "cast_fall_done": cast_fall_done,
 	}
 
 
@@ -502,8 +589,10 @@ func from_dict(d: Dictionary) -> void:
 	planned_len = float(d.get("planned_len", 0.0))
 	hinted = bool(d.get("hinted", false))
 	rolled_day = int(d.get("rolled_day", -1))
+	cast_fall_done = bool(d.get("cast_fall_done", false))
 	var k := String(d.get("kind", ""))
-	if k in KINDS:
+	if k in ALL_KINDS:
+		fall_at = float(d.get("fall_at", -1.0))
 		kind = k
 		left = float(d.get("left", 0.0))
 		fade = 1.0

@@ -1528,8 +1528,9 @@ A `frenzy` item (baitbox) is different: see "Baitbox".
   each roof side only once built), so rain doesn't fall indoors or on the
   porch.
 - **Rare weather** (`src/world/weather.gd`, `swamp.weather`): from
-  `FIRST_DAY` (index 2, day three) `roll_day` gives each day a `CHANCE` (20%)
-  of one event from `KINDS`. Night kinds (`aurora`, `bright_moon`, `meteors`)
+  `FIRST_DAY` (index 2, day three) `roll_day` gives each day a `CHANCE` (20%;
+  33% in the late game, which adds `day_meteors` from day 10: see
+  [game-doc-late-game.md](game-doc-late-game.md)) of one event from `KINDS`. Night kinds (`aurora`, `bright_moon`, `meteors`)
   last the night, from clock 1260 to 180. The others (`fog`, `wind`, `smoke`,
   `thunderstorm`) last `LENGTH` 6–12 min, starting at a random time of the day. Events
   fade in and out over `FADE` (30 s). `apply_sky` runs at the end of
@@ -1787,3 +1788,9 @@ xvfb-run -a -s "-screen 0 1280x720x24" tools/dev-run.sh -- --start=swamp --time=
 - **Anything saved**: add it to `swamp._world_state` and `_apply_restore`
   (or to `Game.take_save` for run-wide state), and add a save test.
 - Then update the player's guide in `docs/`, this page, and the README.
+
+## Late game
+
+Boats, the rocky islands, copper, tool wear and meteoric iron are on the
+`late-game` branch, documented separately in
+[game-doc-late-game.md](game-doc-late-game.md) until it is merged.

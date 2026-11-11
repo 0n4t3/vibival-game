@@ -1164,15 +1164,15 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 			for i in 2:
 				gut_coil(b, rng, Vector3((i - 0.5) * 0.08, 0, rng.randf_range(-0.03, 0.03)), col * rng.randf_range(0.9, 1.1))
 		"blade", "axe_head", "spear_head", "mattock_head":
-			knapped(b, Items.knap_grid(HEAD_SHAPES[shape]), 0.036, 0.03, CHERT, rng, Transform3D(Basis(), Vector3(0, 0.016, 0)))
+			knapped(b, Items.knap_grid(HEAD_SHAPES[shape]), 0.036, 0.03, def.get("head", CHERT), rng, Transform3D(Basis(), Vector3(0, 0.016, 0)))
 		"axe":
 			stick(b, rng, Vector3(-0.3, 0.03, 0), Vector3(0.26, 0.03, 0), 0.022)
-			knapped(b, Items.knap_grid("axe_head"), 0.036, 0.034, CHERT, rng, Transform3D(Basis(), Vector3(0.24, 0.03, -0.075)))
+			knapped(b, Items.knap_grid("axe_head"), 0.036, 0.034, def.get("head", CHERT), rng, Transform3D(Basis(), Vector3(0.24, 0.03, -0.075)))
 			lashing(b, Vector3(0.19, 0.03, 0), Vector3(0.29, 0.03, 0), 0.03, 5)
 		"mattock":
 			# The head crosses the end of the handle like a T.
 			stick(b, rng, Vector3(-0.32, 0.03, 0), Vector3(0.28, 0.03, 0), 0.022)
-			knapped(b, Items.knap_grid("mattock_head"), 0.04, 0.034, CHERT, rng, Transform3D(Basis(), Vector3(0.27, 0.03, 0.0)))
+			knapped(b, Items.knap_grid("mattock_head"), 0.04, 0.034, def.get("head", CHERT), rng, Transform3D(Basis(), Vector3(0.27, 0.03, 0.0)))
 			lashing(b, Vector3(0.2, 0.03, 0), Vector3(0.31, 0.03, 0), 0.03, 5)
 		"torch", "torch_lit":
 			stick(b, rng, Vector3(-0.32, 0.03, 0), Vector3(0.2, 0.03, 0), 0.022)
@@ -1202,7 +1202,7 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 			stick(b, rng, Vector3(-0.8, 0.026, 0), Vector3(0.0, 0.026, 0), 0.022)
 			stick(b, rng, Vector3(-0.06, 0.026, 0), Vector3(0.62, 0.026, 0), 0.02)
 			lashing(b, Vector3(-0.09, 0.026, 0), Vector3(0.03, 0.026, 0), 0.027, 4)
-			knapped(b, Items.knap_grid("spear_head"), 0.036, 0.03, CHERT, rng, Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(0.7, 0.026, 0)))
+			knapped(b, Items.knap_grid("spear_head"), 0.036, 0.03, def.get("head", CHERT), rng, Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(0.7, 0.026, 0)))
 			lashing(b, Vector3(0.57, 0.026, 0), Vector3(0.65, 0.026, 0), 0.025, 4)
 		"drill":
 			# Bow, string and spindle.
@@ -1269,6 +1269,8 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 			soup_pot(b, col)
 		"canteen":
 			canteen(b, col)
+		"flask":
+			flask(b, col)
 		"vessel":
 			vessel(b, col, id.begins_with("vessel_sealed"))
 		"platter":
@@ -1887,6 +1889,50 @@ func canteen(b, stopper: Color, at := Vector3.ZERO, done := 1.0) -> void:
 			pts.append(at + Vector3(-cos(a) * (r + 0.006), h * 0.8 + sin(a) * 0.15, 0))
 			radii.append(0.005)
 		b.tube(pts, radii, 4, [CORD], "fiber")
+
+
+const FLASK_COPPER := Color(0.80, 0.47, 0.24)
+
+
+func flask(b, seal: Color, at := Vector3.ZERO, done := 1.0) -> void:
+	## A flat, round copper pilgrim flask standing on edge: two raised bowls
+	## with their rims hammered into a seam, a short neck with a wooden
+	## stopper (a seal the colour of what is in it under it), and a cord
+	## through two lugs. `done` < 1 is still being made: two sheets beaten
+	## flat, raised into bowls, seamed, necked, then stoppered and corded.
+	var cu := FLASK_COPPER
+	var r := 0.085
+	var c := at + Vector3(0, r + 0.006, 0)
+	if done < 0.25:
+		for x in [-0.07, 0.07]:
+			b.cylinder(at + Vector3(x, 0.0, 0), at + Vector3(x, 0.006, 0), 0.06, 0.06, 12, cu * 0.9, cu, "metal")
+		return
+	if done < 0.5:
+		# Two shallow bowls lying open side up.
+		for x in [-0.1, 0.1]:
+			b.blob(at + Vector3(x, 0.0, 0), Vector3(r, 0.03, r), 3, 12, cu, null, 0.0, "metal")
+		return
+	b.blob(c, Vector3(r, r, 0.032), 4, 14, cu, null, 0.0, "metal")
+	# The seam: a thin flat band round the edge where the rims were folded.
+	b.cylinder(c + Vector3(0, 0, -0.004), c + Vector3(0, 0, 0.004), r + 0.004, r + 0.004, 16, cu * 0.78, Color(-1, 0, 0), "metal")
+	if done < 0.75:
+		return
+	var top := c + Vector3(0, r - 0.006, 0)
+	b.cylinder(top, top + Vector3(0, 0.03, 0), 0.02, 0.015, 8, cu * 0.92, Color(-1, 0, 0), "metal")
+	b.cylinder(top + Vector3(0, 0.028, 0), top + Vector3(0, 0.033, 0), 0.0165, 0.0165, 8, seal, Color(-1, 0, 0), "solid")
+	b.cylinder(top + Vector3(0, 0.033, 0), top + Vector3(0, 0.052, 0), 0.017, 0.014, 7, CANTEEN_WOOD, CANTEEN_WOOD * 0.9, "wood")
+	if done < 1.0:
+		return
+	# Lugs on the shoulders and a cord looped between them over the stopper.
+	var pts := []
+	var radii := []
+	for k in 9:
+		var a := PI * k / 8.0
+		pts.append(c + Vector3(-cos(a) * (r * 0.72), r * 0.62 + sin(a) * 0.12, 0))
+		radii.append(0.004)
+	for x in [-1.0, 1.0]:
+		b.blob(c + Vector3(x * r * 0.72, r * 0.62, 0), Vector3(0.008, 0.01, 0.008), 2, 6, cu * 0.85, null, 0.0, "metal")
+	b.tube(pts, radii, 4, [CORD], "fiber")
 
 
 func hearth_pot(id: String) -> Mesh:

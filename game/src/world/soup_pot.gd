@@ -53,6 +53,19 @@ const SCOOPS := {
 	"canteen_clean_1": {"clean": "canteen_clean_2"},
 	"canteen_soup_1": {"soup": "canteen_soup_2", "spoiled": "canteen_soup_spoiled_2"},
 	"canteen_soup_spoiled_1": {"soup": "canteen_soup_spoiled_2", "spoiled": "canteen_soup_spoiled_2"},
+	"flask": {"dirty": "flask_dirty_1", "clean": "flask_clean_1", "soup": "flask_soup_1", "spoiled": "flask_soup_spoiled_1"},
+	"flask_dirty_1": {"dirty": "flask_dirty_2"},
+	"flask_clean_1": {"clean": "flask_clean_2"},
+	"flask_soup_1": {"soup": "flask_soup_2", "spoiled": "flask_soup_spoiled_2"},
+	"flask_soup_spoiled_1": {"soup": "flask_soup_spoiled_2", "spoiled": "flask_soup_spoiled_2"},
+	"flask_dirty_2": {"dirty": "flask_dirty_3"},
+	"flask_clean_2": {"clean": "flask_clean_3"},
+	"flask_soup_2": {"soup": "flask_soup_3", "spoiled": "flask_soup_spoiled_3"},
+	"flask_soup_spoiled_2": {"soup": "flask_soup_spoiled_3", "spoiled": "flask_soup_spoiled_3"},
+	"flask_dirty_3": {"dirty": "flask_dirty_4"},
+	"flask_clean_3": {"clean": "flask_clean_4"},
+	"flask_soup_3": {"soup": "flask_soup_4", "spoiled": "flask_soup_spoiled_4"},
+	"flask_soup_spoiled_3": {"soup": "flask_soup_spoiled_4", "spoiled": "flask_soup_spoiled_4"},
 }
 const SCALE := 2.8                      # the pot is Assets.pot this many times bigger
 const HANG_Y := 0.6
@@ -156,7 +169,37 @@ func _ready() -> void:
 
 
 func fired_pot() -> bool:
-	return item_id == "soup_pot"
+	return item_id == "soup_pot" or item_id == COPPER_ID
+
+
+# A copper soup pot (late game, raised on the anvil, never fired) holds a
+# quarter more (servings and food alike, so a serving is as rich), comes to
+# the boil in two thirds the time (50% faster), and its soup keeps a fifth
+# longer after it last boiled. The clay pot's numbers are the constants.
+const COPPER_ID := "soup_pot_copper"
+const COPPER_SIZE := 1.25
+const COPPER_HEAT := 1.5
+const COPPER_LIFE := 1.2
+
+
+func copper() -> bool:
+	return item_id == COPPER_ID
+
+
+func capacity() -> float:
+	return SERVINGS * (COPPER_SIZE if copper() else 1.0)
+
+
+func max_food() -> float:
+	return MAX_FOOD * (COPPER_SIZE if copper() else 1.0)
+
+
+func life() -> float:
+	return LIFE * (COPPER_LIFE if copper() else 1.0)
+
+
+func heat_time() -> float:
+	return HEAT_TIME / (COPPER_HEAT if copper() else 1.0)
 
 
 func set_id(id: String) -> void:
@@ -183,7 +226,7 @@ func boiling() -> bool:
 
 
 func spoiled() -> bool:
-	return has_soup() and Game.time - fresh_at > LIFE
+	return has_soup() and Game.time - fresh_at > life()
 
 
 func safe() -> bool:
@@ -225,7 +268,7 @@ func empty_out() -> void:
 func fill_dirty() -> void:
 	## Drawn full of swamp water: whatever was in it is gone.
 	empty_out()
-	water = SERVINGS
+	water = capacity()
 	dirty = true
 	heat = 0.0
 	fresh_at = Game.time
@@ -260,15 +303,15 @@ func add_food(id: String) -> String:
 		return "Boil the water first. Soup needs clean water to start."
 	if spoiled():
 		return "The soup has gone off. Fill the pot at the water to tip it out."
-	if food > MAX_FOOD - 0.001:
+	if food > max_food() - 0.001:
 		return "The soup pot is full."
 	if not has_soup():
 		fresh_at = Game.time   # a new soup
 	var v := food_values(id)
 	for k in NUTRIENTS:
 		nut[k] += v[k]
-	food = minf(food + 1.0, MAX_FOOD)
-	water = minf(water + PER_FOOD, SERVINGS)
+	food = minf(food + 1.0, max_food())
+	water = minf(water + PER_FOOD, capacity())
 	risk = maxf(risk, float(Items.def(id).get("sick", 0.0)))
 	raw = true
 	heat = minf(heat, RAW_HEAT)
@@ -325,17 +368,26 @@ func scoop() -> Dictionary:
 	var kind := contents()
 	if kind == "":
 		return {}
-	var age := clampf(Game.time - fresh_at, 0.0, LIFE) if kind == "soup" else 0.0
+	# Its age as a clay pot's soup would be, as far through its life: what a
+	# canteen's or flask's soup counts its keeping from.
+	var age := clampf((Game.time - fresh_at) * LIFE / life(), 0.0, LIFE) if kind == "soup" else 0.0
 	var s := take_serving()
 	return {"kind": kind, "age": age, "data": s if kind == "soup" else {}}
 
 
-static func mix(a: Dictionary, b: Dictionary) -> Dictionary:
-	## Two servings of soup in one canteen: each serving is now their average.
+static func mix(a: Dictionary, b: Dictionary, had := 1) -> Dictionary:
+	## Soup `b` scooped onto `had` servings of soup `a` in a canteen or flask:
+	## each serving is now their average, weighted by how many there were.
 	var out := {}
 	for k in a.keys() + b.keys():
-		out[k] = (float(a.get(k, 0.0)) + float(b.get(k, 0.0))) * 0.5
+		out[k] = (float(a.get(k, 0.0)) * had + float(b.get(k, 0.0))) / (had + 1.0)
 	return out
+
+
+static func servings_in(id: String) -> int:
+	## How many servings a canteen or flask holds now: its "_1".."_4" suffix.
+	var n := id.substr(id.rfind("_") + 1)
+	return int(n) if n.is_valid_int() else 0
 
 
 # --- Heat ----------------------------------------------------------------------------
@@ -373,8 +425,8 @@ func advance(dt: float, lit_s: float) -> void:
 		return
 	var off := spoiled()
 	if lit_s > 0.0:
-		var to_boil := (1.0 - heat) * HEAT_TIME
-		heat = minf(heat + lit_s / HEAT_TIME, 1.0)
+		var to_boil := (1.0 - heat) * heat_time()
+		heat = minf(heat + lit_s / heat_time(), 1.0)
 		if heat >= 1.0 and not is_empty() and lit_s >= to_boil:
 			if dirty or raw:
 				dirty = false
@@ -427,7 +479,7 @@ func _refresh() -> void:
 		return
 	# Up the inside of the pot's profile (see Assets.pot), from a little in
 	# the bottom to just under the shoulder.
-	var f := clampf(water / SERVINGS, 0.0, 1.0)
+	var f := clampf(water / capacity(), 0.0, 1.0)
 	var y := lerpf(0.03, 0.135, f)
 	var inner := [Vector2(0.05, 0.015), Vector2(0.088, 0.035), Vector2(0.103, 0.08), Vector2(0.09, 0.14)]
 	var r: float = inner[0].x
@@ -573,12 +625,12 @@ func tooltip(_player: Node) -> String:
 		var pct := roundi(fired / FIRE_TIME * 100.0)
 		return "Unfired Soup Pot\nHang it over a lit campfire to fire it" + ("  (%d%% fired)" % pct if pct > 0 else "")
 	if is_empty():
-		return "Soup Pot: empty\nFill it at the water, then boil it"
+		return Items.item_name(item_id) + ": " + "empty\nFill it at the water, then boil it"
 	var n := servings()
 	if not has_soup():
-		return "Soup Pot: %s water (%s)\n%d serving%s of water" % ["swamp" if dirty else "boiled", status(),
+		return Items.item_name(item_id) + ": " + "%s water (%s)\n%d serving%s of water" % ["swamp" if dirty else "boiled", status(),
 				n, "" if n == 1 else "s"]
-	return "Soup Pot: soup (%s)\nPer serving: Meat %d%%   Starch %d%%   Greens %d%%\n%d serving%s left" % [status(),
+	return Items.item_name(item_id) + ": " + "soup (%s)\nPer serving: Meat %d%%   Starch %d%%   Greens %d%%\n%d serving%s left" % [status(),
 			roundi(per_serving("protein")), roundi(per_serving("starch")), roundi(per_serving("greens")),
 			n, "" if n == 1 else "s"]
 
@@ -617,7 +669,7 @@ func _add_blocker() -> String:
 		return "Boil the water first"
 	if spoiled():
 		return "The soup has gone off"
-	if food > MAX_FOOD - 0.001:
+	if food > max_food() - 0.001:
 		return "The soup pot is full"
 	return ""
 
@@ -645,8 +697,8 @@ func interact(player: Node) -> void:
 		if not Items.def(into).has("decay"):
 			data = {}  # water, or soup gone off
 		elif slot.has("data"):
-			# A second serving into a canteen of soup: the two mix.
-			data = mix(slot.data, data)
+			# Another serving into a canteen or flask of soup: they mix.
+			data = mix(slot.data, data, maxi(servings_in(held), 1))
 			age = maxf(age, float(slot.age))
 		inv.replace(inv.selected, into, age, data)
 		Sfx.play("splash", -10.0, 0.2)
@@ -689,9 +741,9 @@ func to_dict() -> Dictionary:
 func from_dict(d: Dictionary) -> void:
 	item_id = String(d.get("id", item_id))
 	rotation.y = float(d.get("yaw", 0.0))
-	water = clampf(float(d.get("water", 0.0)), 0.0, SERVINGS)
+	water = clampf(float(d.get("water", 0.0)), 0.0, capacity())
 	dirty = bool(d.get("dirty", false))
-	food = clampf(float(d.get("food", 0.0)), 0.0, MAX_FOOD)
+	food = clampf(float(d.get("food", 0.0)), 0.0, max_food())
 	var src: Dictionary = d.get("nut", {})
 	for k in NUTRIENTS:
 		nut[k] = float(src.get(k, 0.0))

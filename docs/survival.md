@@ -224,7 +224,8 @@ To store more, set a sack down as a stash: see
 Warm rain comes and goes every few minutes. It burns fuel and torches faster,
 dims torches, and makes sleeping in the open chilly.
 
-From the third day, each day has about a 1 in 5 chance of something rarer:
+From the third day, each day has about a 1 in 5 chance of something rarer
+(1 in 3 in the [late game](late-game.md#weather-in-the-late-game)):
 
 | Event | When and how long | What it does |
 |---|---|---|
@@ -232,6 +233,7 @@ From the third day, each day has about a 1 in 5 chance of something rarer:
 | High winds | 6–12 minutes | Trees sway and the wind howls. Thrown stones drift downwind. Giant dragonflies struggle and are sometimes blown away. |
 | Wildfire smoke | 6–12 minutes | Thick, red-tinged haze with drifting ash. |
 | Thunderstorm | 6–12 minutes | Heavy rain, a dark sky by day, and constant lightning. The lightning never strikes you. |
+| Daytime meteor shower (late game, from day 10) | 6–12 minutes | Fireballs streak across the sky, trailing smoke. It may bring a meteorite down. |
 | Aurora | The whole night | Green and violet curtains across the sky. |
 | Bright moon | The whole night | A huge moon lights the swamp. |
 | Meteor shower | The whole night | Shooting stars from one point in the sky. |

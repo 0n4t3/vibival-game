@@ -4,6 +4,17 @@ extends RefCounted
 
 const WATER := 0.0
 const WORLD_RADIUS := 520.0
+# Rocky islands out in the deep water past the edge of the marsh (metals.md):
+# bare bedrock humps where native copper washes up and copper ore weathers
+# out. Placed from the world seed, so they are where they were on every load.
+const ISLANDS := 5
+const ISLAND_RING := [530.0, 600.0]  # how far out their centres lie
+const ISLAND_R := [26.0, 44.0]       # their radius, out to the foot of the shelf
+const ISLAND_TOP := [3.0, 7.0]       # how high they stand
+const ISLAND_FOOT := -3.0            # the shelf meets the sea floor this deep
+const ISLAND_SAFE := 25.0            # no water predator comes this near an island's shelf
+
+var islands: Array = []  # [{x, z, r, top, outcrops: [Vector2], anvils: [Vector2]}]
 
 var _cont := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
@@ -24,6 +35,37 @@ func _init(seed_value: int) -> void:
 	_moist.seed = seed_value + 3
 	_moist.frequency = 0.012
 	_moist.fractal_octaves = 1
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value + 77
+	var turn := rng.randf() * TAU
+	for i in ISLANDS:
+		var a := turn + TAU * (i + rng.randf_range(-0.25, 0.25)) / ISLANDS
+		var d := rng.randf_range(ISLAND_RING[0], ISLAND_RING[1])
+		var isl := {"x": cos(a) * d, "z": sin(a) * d, "r": rng.randf_range(ISLAND_R[0], ISLAND_R[1]),
+				"top": rng.randf_range(ISLAND_TOP[0], ISLAND_TOP[1]), "outcrops": [], "anvils": []}
+		# Ore outcrops and anvil stones stand up on the rock, well inside the shore.
+		for k in 3:
+			var oa := rng.randf() * TAU
+			isl.outcrops.append(Vector2(isl.x, isl.z) + Vector2(cos(oa), sin(oa)) * isl.r * rng.randf_range(0.12, 0.3))
+		for k in 2:
+			var oa := rng.randf() * TAU
+			isl.anvils.append(Vector2(isl.x, isl.z) + Vector2(cos(oa), sin(oa)) * isl.r * rng.randf_range(0.05, 0.25))
+		islands.append(isl)
+
+
+func island_at(x: float, z: float, margin := 0.0) -> Dictionary:
+	## The island whose shelf (plus `margin`) x, z is within, or {}.
+	if absf(x) + absf(z) < ISLAND_RING[0] - ISLAND_R[1] - margin:
+		return {}
+	for isl in islands:
+		if Vector2(x - isl.x, z - isl.z).length() < isl.r + margin:
+			return isl
+	return {}
+
+
+func _island_k(isl: Dictionary, x: float, z: float) -> float:
+	## 0 at the foot of an island's shelf, 1 up on its top.
+	return smoothstep(isl.r, isl.r * 0.3, Vector2(x - isl.x, z - isl.z).length())
 
 
 func height(x: float, z: float) -> float:
@@ -31,18 +73,30 @@ func height(x: float, z: float) -> float:
 	# Squash heights near the waterline into broad, shallow marsh.
 	h *= 0.3 + 0.7 * smoothstep(0.8, 5.0, absf(h))
 	h += _detail.get_noise_2d(x, z) * 0.35
-	var r := rockiness(x, z)
+	var r := _knoll(x, z)
 	if r > 0.0:
 		h += r * r * 14.0
 	var d := Vector2(x, z).length()
 	if d > WORLD_RADIUS - 80.0:
 		h -= (d - (WORLD_RADIUS - 80.0)) * 0.06
+		var isl := island_at(x, z)
+		if not isl.is_empty():
+			h = maxf(h, lerpf(ISLAND_FOOT, isl.top, _island_k(isl, x, z)) + _detail.get_noise_2d(x, z) * 0.25)
 	return h
 
 
-func rockiness(x: float, z: float) -> float:
-	## 0 on ordinary ground, rising toward 1 on rocky knolls.
+func _knoll(x: float, z: float) -> float:
 	return maxf(_ridge.get_noise_2d(x, z) - 0.32, 0.0) * 2.2
+
+
+func rockiness(x: float, z: float) -> float:
+	## 0 on ordinary ground, rising toward 1 on rocky knolls and on the bare
+	## rock of an island.
+	var r := _knoll(x, z)
+	var isl := island_at(x, z)
+	if not isl.is_empty():
+		r = maxf(r, clampf(_island_k(isl, x, z) * 4.0, 0.0, 1.0))
+	return r
 
 
 func moisture(x: float, z: float) -> float:

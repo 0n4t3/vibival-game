@@ -14,6 +14,7 @@ const ThrownRock := preload("res://src/world/thrown_rock.gd")
 const Fishing := preload("res://src/world/fishing.gd")
 const House := preload("res://src/world/house.gd")
 const Chunk := preload("res://src/world/chunk.gd")
+const Dock := preload("res://src/world/dock.gd")
 
 const WALK := 3.6
 const SPRINT := 6.2
@@ -36,7 +37,7 @@ const WAYPOINT_RANGE := 250.0
 # after ROLL_TIME): a 10% chance it drops you anyway, raised by the best strike
 # you landed while held.
 const ESCAPE_BASE := 0.10
-const ESCAPE_BONUS := {"": 0.0, "bare": 0.15, "stone": 0.30, "advanced": 0.60}
+const ESCAPE_BONUS := {"": 0.0, "bare": 0.15, "stone": 0.30, "metal": 0.45, "advanced": 0.60}
 const ROLL_TIME := 1.5
 const MIN_ROLL_TIME := 0.8    # always time for a couple of strikes first
 # Falls and nasty bites can break bones (see Survival.limbs).
@@ -88,6 +89,7 @@ var next_injury := -1.0         # tests: force the next fracture or fall roll (0
 var _drunk_t := 0.0
 var flying := false         # debug worlds only
 var climbing: Node3D = null     # the house whose rope ladder you are on
+var riding: Node3D = null       # the raft you stand on (raft.gd)
 var _plan: Node3D = null        # the house a held blueprint shows, where it would go
 var _plan_why := ""
 var _last_jump := -1.0
@@ -230,6 +232,9 @@ func _physics_process(delta: float) -> void:
 	if grabbed_by:
 		_physics_grabbed(delta)
 		return
+	if riding:
+		_physics_riding(delta)
+		return
 	var active := not ui_open and not frozen and not vitals.dead
 	var depth := water_depth()
 	var swimming := depth > 1.25
@@ -337,6 +342,36 @@ func _physics_process(delta: float) -> void:
 		Sfx.play("splash" if wading else "step", -14.0 if wading else -10.0, 0.15)
 
 
+func _physics_riding(delta: float) -> void:
+	## Standing on a raft: it carries you, and with a pole in hand the move
+	## keys push it along (raft.gd reads `push`).
+	if not is_instance_valid(riding) or riding.is_queued_for_deletion():
+		riding = null
+		return
+	var active := not ui_open and not frozen and not vitals.dead
+	var input := Vector2.ZERO
+	if active:
+		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		var pad_look := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+		if pad_look != Vector2.ZERO:
+			_look(pad_look * 2.6 * delta)
+	var poling: bool = input != Vector2.ZERO and "pole" in Items.def(Game.inventory.held_id()).get("tags", [])
+	if poling:
+		var dir := transform.basis * Vector3(input.x, 0, input.y)
+		dir.y = 0.0
+		riding.push = dir.normalized() * minf(input.length(), 1.0)
+		_bob += delta * 2.0
+	global_position = riding.stand_global()
+	velocity = Vector3.ZERO
+	_air_top = -INF
+	if vitals_enabled:
+		vitals.tick(delta, false, false, false, false, not poling)
+
+
+func shake(amount: float) -> void:
+	_shake = clampf(_shake + amount, 0.0, 1.0)
+
+
 func _ladder(input: Vector2) -> Node3D:
 	## The house whose rope ladder you climb this frame, or null: half way up
 	## it, or at its foot heading up, or up on the porch heading down it.
@@ -440,23 +475,27 @@ func _update_plan() -> void:
 	## it can stand, red where it can't.
 	var kind: String = Items.def(Game.inventory.held_id()).get("blueprint", "")
 	var show := kind != "" and not ui_open and not vitals.dead and work_spot == null and hauling == null \
-			and climbing == null and world != null and world.has_method("house_spot")
+			and climbing == null and riding == null and world != null and world.has_method("house_spot")
+	if _plan and _plan.get_meta("kind", "house") != kind:
+		_plan.queue_free()
+		_plan = null
 	if not show:
 		if _plan:
 			_plan.queue_free()
 			_plan = null
 		_plan_why = ""
 		return
-	var spot: Dictionary = world.house_spot(self)
+	var spot: Dictionary = world.dock_spot(self) if kind == "dock" else world.house_spot(self)
 	_plan_why = spot.why
 	if _plan == null:
-		_plan = House.new()
+		_plan = Dock.new() if kind == "dock" else House.new()
+		_plan.set_meta("kind", kind)
 		_plan.preview = true
 		_plan.world = world
 		world.add_child(_plan)
 	_plan.show_plan(spot.at, spot.yaw, spot.why == "")
 	if focus == null:
-		prompt = "Mark out the house site here [Right-click]" if _plan_why == "" else "Can't build here: " + _plan_why.trim_suffix(".").to_lower()
+		prompt = ("Mark out the %s site here [Right-click]" % ("dock" if kind == "dock" else "house")) if _plan_why == "" else "Can't build here: " + _plan_why.trim_suffix(".").to_lower()
 
 
 func _hold_take(delta: float) -> void:
@@ -564,6 +603,10 @@ func _update_focus() -> void:
 			tooltip = c.tooltip(self) if c.has_method("tooltip") else ""
 			return
 	if _axe_prompt():
+		return
+	if riding and is_instance_valid(riding):
+		focus = riding
+		prompt = riding.prompt(self)
 		return
 	if _look_at_water(hit):
 		var held: String = Game.inventory.held_id()
@@ -698,6 +741,7 @@ func dig_hole() -> void:
 	_swing = 0.0
 	if world.dig_hole(at):
 		vitals.stamina = maxf(vitals.stamina - 6.0, 0.0)
+		used_tool(false)
 
 
 func throw_held() -> void:
@@ -765,8 +809,9 @@ func consume_slot(i: int) -> void:
 
 
 func _use_measure(i: int, def: Dictionary) -> bool:
-	## An item used a measure at a time (a canteen of alcohol): one less in it,
-	## or the empty canteen once the last is gone. False for anything else.
+	## An item used a measure at a time (a canteen or flask of alcohol): one
+	## less in it, or the empty container (`drained`, else the canteen) once
+	## the last is gone. False for anything else.
 	if not def.has("measures"):
 		return false
 	var inv = Game.inventory
@@ -775,7 +820,7 @@ func _use_measure(i: int, def: Dictionary) -> bool:
 	if left > 0:
 		inv.replace(i, s.id, s.age, Items.measures_data(s.id, left))
 	else:
-		inv.replace(i, "canteen")
+		inv.replace(i, def.get("drained", "canteen"))
 	return true
 
 
@@ -962,6 +1007,8 @@ func _hold_haul() -> void:
 func _attack() -> void:
 	var def := Items.def(Game.inventory.held_id())
 	var dmg: float = def.get("damage", FIST_DAMAGE)
+	if Game.inventory.blunt(Game.inventory.selected):
+		dmg *= 0.5  # a blunt metal edge
 	var reach: float = def.get("reach", 1.8)
 	_attack_cd = 0.75 if reach > 3.0 else 0.55
 	if vitals.stamina < 5.0:
@@ -973,6 +1020,17 @@ func _attack() -> void:
 
 	var o := camera.global_position
 	var d := -camera.global_transform.basis.z
+	if riding and is_instance_valid(riding) and riding.biter and is_instance_valid(riding.biter):
+		# Jaws on a corner of the raft: a blow anywhere near its head counts.
+		var b: Node3D = riding.biter
+		var to_b: Vector3 = b.head_position() - o
+		if to_b.length() <= reach + 1.6 and to_b.normalized().dot(d) > 0.5:
+			b.take_damage(dmg, self)
+			Sfx.play_at("hit", b.head_position(), -2.0)
+			if is_instance_valid(riding):
+				riding.bite_hit(b)
+			used_tool(true)
+			return
 	var best: Node3D = null
 	var best_t := reach
 	for c in Game.creatures:
@@ -992,6 +1050,7 @@ func _attack() -> void:
 			return  # a tree or wall is in the way
 		best.take_damage(dmg, self)
 		Sfx.play_at("hit", best.hit_center(), -2.0)
+		used_tool(true)
 		if Game.inventory.held_id() == "" and best.def.get("fish", {}).get("spines", false):
 			# Punching a live acanthodian bare-fisted: its fin spines jab back.
 			hurt(SPINE_PRICK, best.global_position, 0.2, "spines")
@@ -1012,6 +1071,7 @@ func _attack() -> void:
 				if n and n.has_method("dig"):
 					n.dig()
 					done = true
+					used_tool(false)
 					break
 			if not done and world and world.has_method("clear_fern"):
 				world.clear_fern(hit.position)
@@ -1024,6 +1084,14 @@ func _attack() -> void:
 				if n and n.has_method("axe_hit"):
 					n.axe_hit()
 					break
+
+
+func used_tool(_hit := true) -> void:
+	## A blow that landed with what you hold: a use of it (stone tools may
+	## break, metal edges wear: Inventory.use_tool).
+	var def := Items.def(Game.inventory.held_id())
+	if def.has("breaks") or def.has("edge"):
+		Game.inventory.use_tool(Game.inventory.selected)
 
 
 func hurt(amount: float, from: Vector3, dirt := 0.3, source := "") -> void:

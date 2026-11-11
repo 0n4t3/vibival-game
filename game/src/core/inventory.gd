@@ -243,6 +243,130 @@ func wear(id: String, need := 1) -> int:
 	return left
 
 
+# --- Tool wear (metals.md) ---------------------------------------------------------
+## Stone tools with `breaks` keep a hidden `used` count in their slot data: the
+## first STONE_SAFE uses are safe, then each has a STONE_BREAK chance to snap
+## the head off, leaving the haft. Metal tools with `edge` lose a use off it
+## each time and go blunt at 0 (half damage, twice the steps) until sharpened
+## at the anvil's whetstone. A "use" is a hit that lands, a finished job that
+## needed the tool, or a dig.
+
+const STONE_SAFE := 50
+const STONE_BREAK := 0.02
+
+
+func edge_left(i: int) -> int:
+	## Uses left on the edge of the metal tool in slot i (its full `edge` fresh).
+	var s = slots[i]
+	if s == null:
+		return 0
+	if s.has("data") and s.data.has("edge_left"):
+		return int(s.data.edge_left)
+	return int(Items.def(s.id).get("edge", 0))
+
+
+func blunt(i: int) -> bool:
+	var s = slots[i]
+	return s != null and int(Items.def(s.id).get("edge", 0)) > 0 and edge_left(i) <= 0
+
+
+func tool_slot(tag: String) -> int:
+	## The tool with `tag` a job uses: the one in your hand if it will do,
+	## else the best carried (iron over copper over stone, sharp over blunt).
+	## -1 with none.
+	var h = slots[selected]
+	if h != null and tag in Items.def(h.id).get("tags", []):
+		return selected
+	var best := -1
+	var best_score := -INF
+	for i in SIZE:
+		var s = slots[i]
+		if s == null or not tag in Items.def(s.id).get("tags", []):
+			continue
+		var score: float = {"advanced": 3.0, "metal": 2.0, "stone": 1.0}.get(Items.def(s.id).get("tier", ""), 0.0)
+		if blunt(i):
+			score -= 2.5
+		if score > best_score:
+			best_score = score
+			best = i
+	return best
+
+
+func use_tool(i: int, roll := -1.0) -> String:
+	## One use of the tool in slot i (see above): "broke" if its head snapped
+	## off (the haft is left in the slot), "blunt" if its edge just went, or "".
+	var s = slots[i]
+	if s == null:
+		return ""
+	var def := Items.def(s.id)
+	var data: Dictionary = s.get("data", {})
+	if def.has("breaks"):
+		var used := int(data.get("used", 0)) + 1
+		if used > STONE_SAFE and (roll if roll >= 0.0 else randf()) < STONE_BREAK:
+			var what: String = def.name.to_lower()
+			replace(i, def.breaks)
+			Sfx.play("hit", -2.0, 0.2)
+			Game.notify("Your %s's head snaps off the haft. You're left holding the %s." % [what, Items.item_name(def.breaks).to_lower()])
+			return "broke"
+		var d := data.duplicate()
+		d.used = used
+		_wear_one(i, d)
+		return ""
+	var edge := int(def.get("edge", 0))
+	if edge > 0:
+		var left := edge_left(i)
+		if left <= 0:
+			return ""
+		left -= 1
+		_wear_one(i, Items.edge_data(s.id, left, data))
+		if left == 0:
+			Game.notify("Your %s has gone blunt. Sharpen it at an anvil's whetstone." % def.name.to_lower())
+			return "blunt"
+		return ""
+	if int(def.get("uses", 0)) > 0 and "hammer" in def.get("tags", []):
+		# A copper hammer's face mushrooms a little with each job: worn out,
+		# it is only copper for melting down.
+		var n := uses_left(i) - 1
+		if n <= 0:
+			take(i, 1)
+			add("copper_grains", 2)
+			Game.notify("Your %s's face is beaten out of shape. It is only good for melting down now: Copper Grains x2." % def.name.to_lower())
+			return "worn"
+		replace(i, s.id, s.get("age", 0.0), Items.uses_data(s.id, n))
+	return ""
+
+
+func _wear_one(i: int, data: Dictionary) -> void:
+	## Gives the tool in slot i its new wear `data`. On a stack (fresh tools
+	## stack once stacks have no size limit) only the one in use takes it: it
+	## stays in the slot, in your hand, and the fresh rest move to another
+	## slot, so the next use wears the same tool.
+	var s = slots[i]
+	var rest: int = s.n - 1
+	s.n = 1
+	s.data = data
+	if rest > 0:
+		var left := add(s.id, rest, s.age, true)  # (skips slot i: it has data now)
+		if left > 0:
+			s.n += left  # no free slot: they stay, sharing its wear
+	changed.emit()
+
+
+func sharpen(i: int) -> void:
+	## Puts a full edge back on the metal tool in slot i.
+	var s = slots[i]
+	if s == null or int(Items.def(s.id).get("edge", 0)) <= 0:
+		return
+	s.data = Items.edge_data(s.id, int(Items.def(s.id).edge), s.get("data", {}))
+	changed.emit()
+
+
+func use_tag(tag: String) -> String:
+	## A use of the tool a job with `tag` needed (tool_slot): see use_tool.
+	var i := tool_slot(tag)
+	return use_tool(i) if i >= 0 else ""
+
+
 func count_as(want: String) -> int:
 	## How many will do in a recipe for `want` (see Items.counts_as).
 	var total := 0
@@ -302,11 +426,14 @@ func tick(delta: float) -> void:
 
 func durability(i: int) -> float:
 	## How much is left (0..1) of an item used a measure at a time (a canteen of
-	## alcohol: Items `measures`, with what is left in the slot's data), or -1
-	## for anything else.
+	## alcohol: Items `measures`, with what is left in the slot's data), or of
+	## a metal tool's edge (`edge`), or -1 for anything else.
 	var s = slots[i]
 	if s == null:
 		return -1.0
+	var edge := int(Items.def(s.id).get("edge", 0))
+	if edge > 0:
+		return clampf(float(edge_left(i)) / edge, 0.0, 1.0)
 	var total := int(Items.def(s.id).get("measures", 0))
 	if total <= 0:
 		return -1.0
