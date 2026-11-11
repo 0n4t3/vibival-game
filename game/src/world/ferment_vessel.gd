@@ -29,6 +29,7 @@ extends StaticBody3D
 ## Nothing in a vessel spoils.
 
 const SoupPot := preload("res://src/world/soup_pot.gd")
+const Preserves := preload("res://src/core/preserves.gd")
 
 const CAP := 10
 const FERMENT_TIME := 24.0 * 60.0   # a game day
@@ -716,3 +717,40 @@ func from_dict(d: Dictionary) -> void:
 	_had_meat = bool(d.get("had_meat", false))
 	if is_inside_tree():
 		_rebuild()
+
+
+# --- Preserving pots (core/preserves.gd) --------------------------------------------
+
+func preserved_indices() -> Array:
+	## The items in it that are preserved (ready to go in a preserving pot).
+	var out := []
+	for k in items.size():
+		if Items.cure_of(items[k].id) != "":
+			out.append(k)
+	return out
+
+
+func fill_pot(ks: Array) -> Dictionary:
+	## Draws items ks (1 to Preserves.MAX of the preserved ones) and one
+	## serving of the liquid into a clay pot: {items, fluid}, or {why}.
+	if not fired_pot() or rancid or dirty:
+		return {"why": "There is nothing fit to preserve in it."}
+	if ks.is_empty() or ks.size() > Preserves.MAX:
+		return {"why": "Pick 1 to %d preserved items for the pot." % Preserves.MAX}
+	if water < 1:
+		return {"why": "There is no liquid left to cover them."}
+	for k in ks:
+		if k < 0 or k >= items.size() or Items.cure_of(items[k].id) == "":
+			return {"why": "Only preserved food goes in a pot."}
+	if items.size() - ks.size() > water - 1:
+		return {"why": "Drawing that would leave more food than liquid, and spoil the rest."}
+	var fluid: String = Preserves.FLUIDS[mode()]
+	var sorted := ks.duplicate()
+	sorted.sort()
+	sorted.reverse()
+	var got := []
+	for k in sorted:
+		got.push_front(take(k))
+	water -= 1
+	_refresh()
+	return {"items": got, "fluid": fluid}

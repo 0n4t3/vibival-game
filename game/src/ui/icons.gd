@@ -178,6 +178,17 @@ static func draw_item(ci: CanvasItem, r: Rect2, id: String) -> void:
 			ci.draw_line(o + Vector2(s * 0.8, s * 0.8), o + Vector2(-s * 0.8, s * 0.5), Color(0.35, 0.25, 0.14), s * 0.2)
 			ci.draw_colored_polygon(PackedVector2Array([o + Vector2(0, -s), o + Vector2(s * 0.5, s * 0.1), o + Vector2(0, s * 0.5), o + Vector2(-s * 0.5, s * 0.1)]), Color(1.0, 0.5, 0.1))
 			ci.draw_colored_polygon(PackedVector2Array([o + Vector2(0, -s * 0.4), o + Vector2(s * 0.25, s * 0.2), o + Vector2(0, s * 0.45), o + Vector2(-s * 0.25, s * 0.2)]), Color(1.0, 0.85, 0.3))
+		"pot_capped":
+			var cb := PackedVector2Array([o + Vector2(-s * 0.45, -s * 0.5), o + Vector2(s * 0.45, -s * 0.5), o + Vector2(s * 0.75, s * 0.05),
+				o + Vector2(s * 0.5, s * 0.85), o + Vector2(-s * 0.5, s * 0.85), o + Vector2(-s * 0.75, s * 0.05)])
+			ci.draw_colored_polygon(cb, Color(0.7, 0.42, 0.28))
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.58, -s * 0.62), Vector2(s * 1.16, s * 0.14)), Color(0.85, 0.78, 0.45))
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.5, -s * 0.8), Vector2(s * 1.0, s * 0.2)), Color(0.62, 0.47, 0.30))
+			ci.draw_rect(Rect2(o + Vector2(-s * 0.12, -s * 0.95), Vector2(s * 0.24, s * 0.16)), Color(0.55, 0.41, 0.26))
+		"pot_cap":
+			ci.draw_circle(o + Vector2(0, s * 0.1), s * 0.7, c)
+			ci.draw_arc(o + Vector2(0, s * 0.1), s * 0.7, 0, TAU, 16, c.darkened(0.35), 1.5)
+			ci.draw_circle(o + Vector2(0, s * 0.1), s * 0.2, c.darkened(0.15))
 		"pot", "pot_water":
 			var body := PackedVector2Array([o + Vector2(-s * 0.45, -s * 0.6), o + Vector2(s * 0.45, -s * 0.6), o + Vector2(s * 0.75, 0),
 				o + Vector2(s * 0.5, s * 0.8), o + Vector2(-s * 0.5, s * 0.8), o + Vector2(-s * 0.75, 0)])

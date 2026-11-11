@@ -10,6 +10,7 @@ extends Control
 const Icons := preload("res://src/ui/icons.gd")
 const Inventory := preload("res://src/core/inventory.gd")
 const Survival := preload("res://src/core/survival.gd")
+const Preserves := preload("res://src/core/preserves.gd")
 
 var where := "swamp"       # which recipe set the book shows
 var player: Node = null
@@ -18,6 +19,8 @@ var vessel: Node = null    # the fermentation vessel open, if any (its own page)
 var _vessel_page: Control
 var _vessel_box: VBoxContainer
 var _vessel_add: VBoxContainer
+var _pot_pick: Array = []    # vessel items picked to go in a preserving pot
+var _pot_vessel: Node = null # the vessel they were picked from
 
 var _sel := -1
 var _sel_store := false    # the selection is in the stash grid
@@ -32,10 +35,13 @@ var _stash_weight: Label
 var _pickup_btn: Button
 var _name: Label
 var _desc: Label
+const DESC_LINES := 10  # the item description's fixed height, in lines
 var _use_btn: Button
 var _treat_btn: Button
 var _drop_btn: Button
 var _discard_btn: Button
+var _seal_btn: Button
+var _open_btn: Button
 var _weight: Label
 var _condition: Label
 var _rest: VBoxContainer
@@ -141,8 +147,12 @@ func _ready() -> void:
 	inv_box.add_child(_name)
 	_desc = Label.new()
 	_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_desc.custom_minimum_size = Vector2(390, 52)
 	_desc.add_theme_font_size_override("font_size", 14)
+	# A fixed height, room for the longest description and its stats: the page
+	# is centred, so a label that grew with its text would make the whole menu
+	# jump up and down as you hover over items.
+	_desc.clip_text = true
+	_desc.custom_minimum_size = Vector2(390, (_desc.get_theme_font("font").get_height(14) + _desc.get_theme_constant("line_spacing")) * DESC_LINES)
 	inv_box.add_child(_desc)
 	var btns := HBoxContainer.new()
 	inv_box.add_child(btns)
@@ -152,7 +162,11 @@ func _ready() -> void:
 	_drop_btn.tooltip_text = "Put it on the ground. It stays there."
 	_discard_btn = _button("Discard", _on_discard)
 	_discard_btn.tooltip_text = "Throw it away. It is gone once you leave or reload."
-	for b in [_use_btn, _treat_btn, _drop_btn, _discard_btn]:
+	_seal_btn = _button("Seal", _on_seal)
+	_seal_btn.tooltip_text = "Seal it with a wooden cap and a lump of wax: nothing in it spoils."
+	_open_btn = _button("Open", _on_open)
+	_open_btn.tooltip_text = "Take all the food out into your bag."
+	for b in [_use_btn, _treat_btn, _seal_btn, _open_btn, _drop_btn, _discard_btn]:
 		btns.add_child(b)
 	_condition = Label.new()
 	_condition.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -374,8 +388,8 @@ func _move(src: RefCounted, si: int, dst: RefCounted, di: int) -> bool:
 	if s == null:
 		return false
 	if d != null and (d.id != s.id or s.has("data") or d.has("data")):
-		var ws: float = Items.weight(s.id) * s.n
-		var wd: float = Items.weight(d.id) * d.n
+		var ws: float = Items.slot_weight(s) * s.n
+		var wd: float = Items.slot_weight(d) * d.n
 		if dst.weight() - wd + ws > dst.capacity() * dst.overload + 0.001 \
 				or src.weight() - ws + wd > src.capacity() * src.overload + 0.001:
 			Game.notify("Too heavy to swap those.")
@@ -448,6 +462,8 @@ func _consume(i: int) -> void:
 		return
 	if Items.is_food(Game.inventory.slots[i].id):
 		player.consume_slot(i)
+	elif Items.def(Game.inventory.slots[i].id).get("preserves", false):
+		player.use_preserves(i)
 	else:
 		player.treat_slot(i)
 	_refresh()
@@ -513,6 +529,9 @@ func _refresh_info() -> void:
 		_treat_btn.disabled = true
 		_drop_btn.disabled = true
 		_discard_btn.disabled = true
+		_seal_btn.visible = false
+		_open_btn.visible = false
+		_use_btn.visible = true
 		return
 	var def := Items.def(s.id)
 	if s.has("data"):
@@ -532,7 +551,8 @@ func _refresh_info() -> void:
 			stats.append("Seals a wound")
 		"alcohol":
 			stats.append("Cleans a wound, fights infection")
-	stats.append("%.2f kg" % Items.weight(s.id) if s.n == 1 else "%.2f kg (%.1f kg)" % [Items.weight(s.id), Items.weight(s.id) * s.n])
+	var kg: float = Items.slot_weight(s)
+	stats.append("%.2f kg" % kg if s.n == 1 else "%.2f kg (%.1f kg)" % [kg, kg * s.n])
 	if def.has("damage"):
 		stats.append("Damage %d" % def.damage)
 	if def.has("uses"):
@@ -551,6 +571,11 @@ func _refresh_info() -> void:
 	_treat_btn.disabled = not mine or not def.has("treat") or not player.vitals_enabled
 	_drop_btn.disabled = not mine
 	_discard_btn.disabled = not mine
+	_seal_btn.visible = s.id == "pot_preserves"
+	_seal_btn.disabled = not mine or Game.inventory.count("wooden_cap") < 1 or Game.inventory.count("wax") < 1
+	_open_btn.visible = def.get("preserves", false)
+	_open_btn.disabled = not mine
+	_use_btn.visible = not _open_btn.visible
 	for b in _slots:
 		b.queue_redraw()
 	for b in _stash_slots:
@@ -952,6 +977,15 @@ func _vessel_do(what: String, arg = null) -> void:
 	match what:
 		"take":
 			v.take_to_bag(int(arg))
+			_pot_pick.clear()
+		"pick":
+			var k := int(arg)
+			if k in _pot_pick:
+				_pot_pick.erase(k)
+			elif _pot_pick.size() < Preserves.MAX:
+				_pot_pick.append(k)
+		"fill_pot":
+			why = fill_pot_from(v)
 		"food":
 			var i: int = inv.find(String(arg))
 			if i >= 0:
@@ -980,6 +1014,9 @@ func _refresh_vessel() -> void:
 		return
 	_clear(_vessel_box)
 	_clear(_vessel_add)
+	if _pot_vessel != v:
+		_pot_vessel = v
+		_pot_pick.clear()
 	var title: Label = (_vessel_page.get_child(0).get_child(0) as VBoxContainer).get_child(0)
 	title.text = Items.item_name(v.item_id)
 	for line in v.tooltip(player).split("\n").slice(1):
@@ -997,6 +1034,7 @@ func _refresh_vessel() -> void:
 		if Items.cure_of(it.id) == "" and it.id != "rotten" and v.mode() != "salt":
 			note = "  (%s to go)" % v._hours(v.FERMENT_TIME - it.t)
 		_vessel_box.add_child(_item_row(it.id, Items.item_name(it.id) + note, "Take", _vessel_do.bind("take", k)))
+	_add_pot_section(v)
 	# What you can put in.
 	var seen := {}
 	for s in Game.inventory.slots:
@@ -1014,6 +1052,57 @@ func _refresh_vessel() -> void:
 					"Put in", _vessel_do.bind("food", s.id)))
 	if _vessel_add.get_child_count() == 0:
 		_vessel_add.add_child(_small("You carry nothing that goes in it: fresh food, boiled water in a pot or canteen%s." % (", or salt" if v.sealed() else "")))
+
+
+func _add_pot_section(v: Node) -> void:
+	## With an empty clay pot in the bag: pick 1-4 of the preserved items to
+	## draw into it with one serving of the liquid.
+	var ready: Array = v.preserved_indices()
+	_pot_pick = _pot_pick.filter(func(k): return k in ready)
+	if ready.is_empty() or Game.inventory.count("pot") < 1:
+		if not ready.is_empty():
+			_vessel_box.add_child(_small("Carry an empty clay pot to fill a pot of preserves from it.", Color(1, 1, 1, 0.6), 12))
+		return
+	_vessel_box.add_child(HSeparator.new())
+	_vessel_box.add_child(_small("Fill a clay pot: pick 1 to %d preserved items. They go in with one serving of the %s." % [Preserves.MAX, Preserves.FLUIDS[v.mode()]], Color(0.95, 0.9, 0.7)))
+	for k in ready:
+		var picked: bool = k in _pot_pick
+		_vessel_box.add_child(_item_row(v.items[k].id, Items.item_name(v.items[k].id), "Picked" if picked else "Pick",
+				_vessel_do.bind("pick", k), not picked and _pot_pick.size() >= Preserves.MAX))
+	var fill := _button("Fill the pot (%d)" % _pot_pick.size(), _vessel_do.bind("fill_pot"))
+	fill.disabled = _pot_pick.is_empty()
+	_vessel_box.add_child(fill)
+
+
+func fill_pot_from(v: Node) -> String:
+	## Draws the picked items and a serving of liquid into an empty clay pot
+	## from the bag. Returns why not, or "".
+	var inv = Game.inventory
+	var i: int = inv.find("pot")
+	if i < 0:
+		return "You have no empty clay pot."
+	var got: Dictionary = v.fill_pot(_pot_pick)
+	if got.has("why"):
+		return got.why
+	_pot_pick.clear()
+	inv.replace(i, "pot_preserves", 0.0, Preserves.filled_data(got.items, got.fluid))
+	Sfx.play("splash", -10.0, 0.2)
+	Game.notify("You fill a pot of preserves: %s." % Preserves.listing(got.items))
+	return ""
+
+
+func _on_seal() -> void:
+	var i := _focus_slot()
+	if i >= 0 and player != null:
+		player.use_preserves(i, "seal")
+		_refresh()
+
+
+func _on_open() -> void:
+	var i := _focus_slot()
+	if i >= 0 and player != null:
+		player.use_preserves(i, "open")
+		_refresh()
 
 
 # --- Recipe book -----------------------------------------------------------------------

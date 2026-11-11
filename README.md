@@ -31,7 +31,7 @@ As time goes on you’ll be able to do a bit more. Make a mattok to start replan
 There’s some further planned content I’ll keep working on as long as tokens remain cheap, including:
 * Food & Stamina Overhaul
 * Combat overhaul
-* A much better (and funnier) tutorial
+* ~~A much better (and funnier) tutorial~~ ✔
 * Maps
 * Boats
 * Multiplayer

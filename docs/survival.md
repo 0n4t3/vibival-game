@@ -211,6 +211,10 @@ that to **25 kg**, and a **Woven Cloth Sack** to **48 kg**. Only your best sack
 counts: carrying two doesn't add them up, and the other is just weight. Up to one and a half times that you can still carry more, but
 you are slow, cannot sprint and tire quickly. Past that, nothing more fits.
 
+Only weight counts: a stack can hold as many of a thing as you can carry.
+Things that are worn differently keep to their own slots, so a part-used
+tool doesn't join a stack of fresh ones.
+
 The weight you carry shows under the hotbar and at the top of the inventory.
 To store more, set a sack down as a stash: see
 [Stashes and waypoints](stashes-and-waypoints.md).
@@ -233,3 +237,7 @@ From the third day, each day has about a 1 in 5 chance of something rarer
 | Aurora | The whole night | Green and violet curtains across the sky. |
 | Bright moon | The whole night | A huge moon lights the swamp. |
 | Meteor shower | The whole night | Shooting stars from one point in the sky. |
+
+An aurora or a meteor shower gives itself away at dusk: you see faint
+shimmers, or faint streaks of light, in the sky, and once it is dark it
+begins in earnest.

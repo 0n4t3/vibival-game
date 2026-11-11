@@ -139,6 +139,7 @@ func _ready() -> void:
 		print("== fermentation")
 		await test_ferment()
 		test_alcohol()
+		await test_preserves()
 	if only.is_empty() or "logs" in only:
 		print("== log looks")
 		await test_log_kinds()
@@ -362,8 +363,18 @@ func test_data() -> void:
 
 func test_inventory() -> void:
 	var inv := Inventory.new()
+	# Weight, not stack size, is the limit; things worn differently keep apart.
+	check(inv.add("stone", 60, 0.0, true) == 0 and inv.slots[0].n == 60 and inv.slots[1] == null, "a stack has no size limit")
+	inv.clear()
+	inv.add("ash_pencil", 2, 0.0, true)
+	check(inv.slots[0].n == 2, "fresh tools stack")
+	inv.wear("ash_pencil")
+	check(inv.count("ash_pencil") == 2 and inv.slots[0].n == 1 and inv.slots[1] != null and inv.slots[1].n == 1, "a worn tool leaves the stack")
+	inv.add("ash_pencil", 1, 0.0, true, Items.uses_data("ash_pencil", 1))
+	check(inv.slots[2] != null and inv.slots[2].n == 1, "tools worn differently keep separate stacks")
+	inv.clear()
 	check(inv.add("plant_fiber", 25) == 0, "25 fiber fit")
-	check(inv.slots[0].n == Items.max_stack("plant_fiber") or inv.slots[1] == null, "fiber stacks")
+	check(inv.slots[0].n == 25 and inv.slots[1] == null, "fiber stacks without a size limit")
 	check(inv.count("plant_fiber") == 25, "count fiber")
 	check(is_equal_approx(inv.weight(), Items.weight("plant_fiber") * 25), "weight sums items")
 	check(inv.remove("plant_fiber", 22), "remove 22")
@@ -406,8 +417,8 @@ func test_inventory() -> void:
 	var full := Inventory.new()
 	full.capacity_override = 1000.0
 	for i in Inventory.SIZE:
-		full.add("spear")
-	check(full.add("spear") == 1, "inventory with every slot taken rejects")
+		full.add("spear", 1, 0.0, false, {"mark": i})  # (with data of their own: a slot each)
+	check(full.add("stone") == 1, "inventory with every slot taken rejects")
 	var sw := Inventory.new()
 	sw.add("stone", 3)
 	sw.swap(0, 5)
@@ -3387,7 +3398,7 @@ func test_canteen() -> void:
 	ui._cat = Items.ADVANCED
 	ui._refresh_book()
 	await _frames(1)
-	check(titles.call().has("Wooden Canteen") and titles.call().all(func(t): return t in ["Wooden Canteen", "Unfired Blowpipe"]), "it lists the canteen (%s)" % ", ".join(titles.call()))
+	check(titles.call().has("Wooden Canteen") and titles.call().all(func(t): return t in ["Wooden Canteen", "Unfired Blowpipe", "Wooden Cap x4"]), "it lists the canteen (%s)" % ", ".join(titles.call()))
 	# Crafting the platter teaches it too.
 	Game.crafted.emit("clay_platter")
 	check("clay_platter" in Game.tools_known and ui.book_rack_tools().size() == 2, "making a clay platter adds its recipes")
@@ -3689,7 +3700,8 @@ func test_ferment() -> void:
 	Game.inventory.add("pot_clean", 3)
 	_hold("pot_clean")
 	b.interact(p)
-	check(b.water == 1 and Game.inventory.held_id() == "pot", "a pot of boiled water pours a serving in")
+	# (The four stack: the emptied pot leaves the stack for a slot of its own.)
+	check(b.water == 1 and Game.inventory.count("pot_clean") == 3 and Game.inventory.count("pot") == 1, "a pot of boiled water pours a serving in")
 	b.water = 6
 	for id in ["roast_seed", "roast_seed", "cooked_fiddlehead"]:
 		b.add_food(id)
@@ -3789,6 +3801,108 @@ func test_ferment() -> void:
 	w.queue_free()
 	await _frames(2)
 
+
+func test_preserves() -> void:
+	## Preserving pots: filled at a vessel, sealed with a cap and wax, opened.
+	var w: Node = await _new_swamp()
+	var p: Node = w.player
+	var spot: Vector3 = p.global_position
+	var ui: Node = w.inv_ui
+	Game.inventory.clear()
+	var cr: Dictionary = Items.recipe_for("wooden_cap")
+	check(cr.get("n", 0) == 4 and cr.in.has("board") and cr.get("rack", "") == "woodworking_tools", "a board carves four wooden caps at the bench")
+
+	# A pickling vessel with five pickled items in it.
+	var v: Node = w.add_vessel("vessel_open", spot + Vector3(-4, 0, 6))
+	v.water = 6
+	for id in ["cooked_fiddlehead", "cooked_fiddlehead", "roast_seed", "roast_seed", "roast_seed"]:
+		v.add_food(id)
+	v.add_food("cooked_fiddlehead")
+	v.items[5].t = 0.0  # not yet pickled
+	v.advance(v.FERMENT_TIME - 1.0, 0.0)
+	v.items[5].t = 0.0
+	v.advance(2.0, 0.0)
+	check(v.preserved_indices().size() == 5 and Items.cure_of(v.items[5].id) == "", "five are pickled, one isn't yet (%d)" % v.preserved_indices().size())
+	check(v.fill_pot([5]).has("why"), "food not yet preserved doesn't go in a pot")
+	check(v.fill_pot([0, 1, 2, 3, 4]).has("why"), "nor more than four")
+
+	# Picked in the vessel's window, filled into an empty clay pot.
+	ui.vessel = v
+	Game.inventory.add("pot", 2)
+	for k in 5:
+		ui._vessel_do("pick", k)
+	check(ui._pot_pick.size() == 4, "the window picks at most four")
+	ui._vessel_do("pick", 2)
+	ui._vessel_do("pick", 3)
+	check(ui._pot_pick.size() == 2, "and unpicks")
+	var water0: int = v.water
+	ui._vessel_do("fill_pot")
+	var i: int = Game.inventory.find("pot_preserves")
+	check(i >= 0 and Game.inventory.count("pot") == 1, "one empty clay pot becomes a Pot of Preserves")
+	if i < 0:
+		w.queue_free()
+		await _frames(2)
+		return
+	var d: Dictionary = Game.inventory.slots[i].data
+	check(d.items.size() == 2 and v.items.size() == 4 and v.water == water0 - 1, "two items and one serving of liquid come out (%d water left)" % v.water)
+	check(d.fluid == "pickling brine" and "Pot of Preserves (2)" == Game.inventory.def_of(i).name, "an open pot shows what it holds (%s)" % Game.inventory.def_of(i).name)
+	var want: float = Items.weight("pot") + 1.5 + Items.weight(d.items[0].id) + Items.weight(d.items[1].id)
+	check(is_equal_approx(Items.slot_weight(Game.inventory.slots[i]), want), "it weighs the pot, the liquid and the food (%.2f kg)" % want)
+	check(Game.inventory.weight() >= want, "and counts in the bag's weight")
+
+	# Sealing needs a cap and wax; then it ages no more and hides what it holds.
+	Game.time += 600.0
+	check(not p.use_preserves(i) and Game.inventory.slots[i].id == "pot_preserves", "no cap or wax: it stays open")
+	Game.inventory.add("wooden_cap", 1)
+	Game.inventory.add("wax", 2)
+	check(p.use_preserves(i) and Game.inventory.slots[i].id == "pot_sealed", "Use seals it with a cap and wax")
+	check(Game.inventory.count("wooden_cap") == 0 and Game.inventory.count("wax") == 1, "using up the cap and a lump of wax")
+	var sd: Dictionary = Game.inventory.def_of(i)
+	check(sd.name == "Sealed Pot" and not "Pickled" in sd.desc and not sd.has("since"), "sealed, it is just a Sealed Pot (%s)" % sd.name)
+	check(is_equal_approx(Items.slot_weight(Game.inventory.slots[i]), want), "and weighs the same")
+	Game.time += 30.0 * 24.0 * 60.0
+	Game.inventory.tick(30.0 * 24.0 * 60.0)
+	check(Game.inventory.slots[i].id == "pot_sealed", "a month later it is still sealed")
+	check(p.use_preserves(i), "Use opens it")
+	var picked: Array = Game.inventory.slots.filter(func(s): return s != null and Items.cure_of(s.id) == "pickled")
+	var n := 0
+	var ages_ok := true
+	for s in picked:
+		n += s.n
+		ages_ok = ages_ok and absf(s.age - 600.0) < 1.0
+	check(n == 2 and ages_ok, "both items come out, only as old as the time it stood open (%d)" % n)
+	check(Game.inventory.slots[i].id == "pot" and Game.inventory.count("wooden_cap") == 1, "leaving the clay pot and the cap back")
+
+	# An open pot opened: its food has aged from when it was filled.
+	for s in picked:
+		Game.inventory.slots[Game.inventory.slots.find(s)] = null
+	ui._vessel_do("pick", 0)
+	ui._vessel_do("fill_pot")
+	i = Game.inventory.find("pot_preserves")
+	Game.time += 300.0
+	check(i >= 0 and p.use_preserves(i, "open") and Game.inventory.slots[i].id == "pot", "an open pot can be emptied too")
+	var one: Array = Game.inventory.slots.filter(func(s): return s != null and Items.cure_of(s.id) == "pickled")
+	check(one.size() == 1 and absf(one[0].age - 300.0) < 1.0 and Game.inventory.count("wooden_cap") == 1, "its food has aged since it was filled, and no cap comes out")
+
+	# Salted and alcohol-preserved food work the same way.
+	var sv: Node = w.add_vessel("vessel_sealed", spot + Vector3(4, 0, 6))
+	sv.water = 4
+	sv.salt = 4
+	for id in ["cooked_meat", "cooked_meat"]:
+		sv.add_food(id)
+	check(sv.mode() == "salt" and sv.preserved_indices().size() == 2, "a salting vessel's food is ready at once")
+	var got: Dictionary = sv.fill_pot([0, 1])
+	check(got.get("fluid", "") == "salt brine" and got.items.size() == 2 and sv.water == 3, "salted food goes in with salt brine")
+	var av: Node = w.add_vessel("vessel_sealed", spot + Vector3(4, 0, -6))
+	av.water = 4
+	for id in ["roast_seed", "roast_seed"]:
+		av.add_food(id)
+	av.advance(av.FERMENT_TIME + 1.0, 0.0)
+	got = av.fill_pot([0])
+	check(got.get("fluid", "") == "alcohol" and Items.cure_of(got.items[0].id) == "spirit", "alcohol-preserved food goes in with alcohol")
+	ui.vessel = null
+	w.queue_free()
+	await _frames(2)
 
 func test_alcohol() -> void:
 	var v := Survival.new()
@@ -4033,8 +4147,30 @@ func test_baitbox() -> void:
 	tr._land(Vector3(box.x, w.water_level(), box.z))
 	check(w._frenzy_left > 0.0 and u.state == "frenzy" and not u.submerged, "a baitbox in the water: the one by the edge comes up and goes for it")
 	check(x == null or x.state == "hide", "one more than %d m off takes no notice" % Creature.FRENZY_RADIUS)
-	await _run_for(8.0, func(): return p.grabbed_by != null)
+	var wet := func(q: Vector3) -> bool: return w.ground_height(q.x, q.z) < w.water_level()
+	var dry_path := false
+	var last: Vector3 = u.global_position
+	for q in u._frenzy_path:
+		for i in range(1, 21):
+			if not wet.call(last.lerp(q, i / 20.0)):
+				dry_path = true
+		last = q
+	check(not u._frenzy_path.is_empty() and not dry_path, "its way to the box keeps to the water (%d legs)" % u._frenzy_path.size())
+	var ashore := [false]
+	var opened := [true]
+	await _run_for(8.0, func():
+		if not wet.call(u.global_position):
+			ashore[0] = true
+		if u._gape > 0.1 and (u._jaw.transform * Vector3(0, 0, -1)).y > u._jaw.position.y:
+			opened[0] = false
+		return p.grabbed_by != null)
 	check(p.grabbed_by == null, "you stand at the water's edge unharmed")
+	check(not ashore[0], "it never leaves the water to get there")
+	check(opened[0], "its jaw drops open, never up through its skull")
+	# One out on land takes no notice.
+	var landed: Node = w.spawn_amphibian("eogyrinus", "land", edge, edge)
+	check(not landed.frenzy(box, 5.0), "an Eogyrinus out on land does not cross it to the box")
+	landed.queue_free()
 	var gone: float = Vector2(u.global_position.x - box.x, u.global_position.z - box.z).length()
 	check(gone < u.def.radius + 6.0, "it is tearing at the box (%.1f m from it)" % gone)
 	# One that turns up while it lasts joins in.
@@ -5141,6 +5277,26 @@ func test_weather() -> void:
 	ev.plan("aurora", day)
 	check(is_equal_approx(fmod(ev.planned_at + Game.ARRIVAL_CLOCK, Game.DAY_LENGTH), ev.NIGHT_START) and is_equal_approx(ev.planned_len, 360.0),
 			"an aurora is planned for dusk until dawn")
+	# It hints at itself from the start of dusk, then begins in the dark.
+	var was: float = Game.time
+	var notes: Array[String] = []
+	var note := func(t: String) -> void: notes.append(t)
+	Game.message.connect(note)
+	ev.rolled_day = day
+	Game.time = ev.planned_at - (ev.NIGHT_START - ev.DUSK_START) - 1.0
+	ev.update(0.1)
+	check(notes.is_empty(), "no word of the aurora before dusk")
+	Game.time += 2.0
+	ev.update(0.1)
+	check(notes.size() == 1 and notes[0] == ev.HINT_TEXT.aurora and ev.kind == "", "faint shimmers at the start of dusk")
+	ev.update(0.1)
+	check(notes.size() == 1, "the hint comes once")
+	Game.time = ev.planned_at + 1.0
+	ev.update(0.1)
+	check(ev.kind == "aurora" and notes.size() == 2 and notes[1] == ev.START_TEXT.aurora, "the curtains of light once it is dark")
+	Game.message.disconnect(note)
+	ev.stop()
+	Game.time = was
 	ev.plan("fog", day)
 	var dstart: float = ev.day_start(day)
 	check(ev.planned_len >= 360.0 and ev.planned_len <= 720.0 and ev.planned_at >= dstart and ev.planned_at + ev.planned_len <= dstart + Game.DAY_LENGTH + 1.0,

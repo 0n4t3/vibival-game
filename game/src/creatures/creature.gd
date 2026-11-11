@@ -14,6 +14,7 @@ const LINGER := 180.0      # seconds it hangs about where the guts were once the
 const SCENT_RADIUS := 45.0 # blood in the water (meaty soup tipped out) draws amphibians this far
 const APPROACH_TIME := 120.0  # seconds one drawn by blood keeps coming before it gives up
 const FRENZY_RADIUS := 65.0   # a baitbox in the water draws big amphibians this far (frenzy)
+const PATH_CELL := 2.0        # metres per cell of the grid a water path is searched on
 const SUFFOCATE := 90.0    # seconds a fish lives out of the water
 const AIR_MULT := 5.0      # a lungfish, which breathes air, lasts this many times as long
 
@@ -283,6 +284,7 @@ var _approach := 0.0             # amphibians: seconds left closing in on the sc
 var _frenzy := 0.0               # amphibians: seconds left tearing at a baitbox (see frenzy)
 var _frenzy_at := Vector3.ZERO   # where the baitbox is
 var _frenzy_spot := Vector3.ZERO # where it is thrashing toward next, round the box
+var _frenzy_path: Array = []     # waypoints through the water to the baitbox (see _water_path)
 var _stun := 0.0                 # small animals: seconds left dazed by a thrown rock
 var blown := 0.0                 # flyers: seconds left tumbling helplessly in a gale
 var carried_by: Node3D = null    # a lizard: the Meganeura flying off with it
@@ -1428,7 +1430,7 @@ func _think_lurker(player: Node3D, dist: float, delta: float) -> void:
 	position.y = lerpf(position.y, want_y, minf(delta * 3.0, 1.0))
 	_body.visible = not submerged
 	if _jaw:
-		_jaw.rotation.x = _gape * 0.9
+		_jaw.rotation.x = -_gape * 0.9  # the snout points down -z: a negative turn drops the jaw
 	if dist < 70.0:
 		_animate(spd, delta)
 		_update_ripples(delta)
@@ -1692,7 +1694,7 @@ func _think_ambusher(player: Node3D, dist: float, delta: float) -> void:
 	submerged = state == "hide" and position.y < h - 0.25
 	_body.visible = position.y > h - 1.0
 	if _jaw:
-		_jaw.rotation.x = _gape * 0.9
+		_jaw.rotation.x = -_gape * 0.9  # the snout points down -z: a negative turn drops the jaw
 	if dist < 70.0:
 		_animate(spd if not state in ["strike", "lunge"] else 2.0, delta)
 		_update_ripples(delta)
@@ -1763,6 +1765,12 @@ func frenzy(at: Vector3, secs: float) -> bool:
 		return false
 	if state == "grab" or (def.behavior == "ambusher" and state == "feed"):
 		return false
+	# It comes only through the water: one out on land, or cut off from the
+	# box by land, takes no notice.
+	var path := _water_path(global_position, at)
+	if path.is_empty():
+		return false
+	_frenzy_path = path
 	if drawn:
 		_stop_feeding_guts()
 		drawn = false
@@ -1790,10 +1798,15 @@ func frenzy(at: Vector3, secs: float) -> bool:
 
 
 func _pick_frenzy_spot() -> void:
-	## Somewhere close round the baitbox to lunge at next.
-	var a := _rng.randf() * TAU
-	var r := _rng.randf_range(float(def.radius) * 0.5, float(def.radius) + 3.0)
-	_frenzy_spot = _frenzy_at + Vector3(cos(a), 0.0, sin(a)) * r
+	## Somewhere close round the baitbox, in the water, to lunge at next.
+	_frenzy_spot = _frenzy_at
+	for i in 8:
+		var a := _rng.randf() * TAU
+		var r := _rng.randf_range(float(def.radius) * 0.5, float(def.radius) + 3.0)
+		var p := _frenzy_at + Vector3(cos(a), 0.0, sin(a)) * r
+		if _wet(p.x, p.z):
+			_frenzy_spot = p
+			break
 	_state_t = _rng.randf_range(0.5, 1.5)
 
 
@@ -1802,10 +1815,89 @@ func _far_from_frenzy() -> bool:
 
 
 func _frenzy_goal() -> Vector3:
-	## The spot it is lunging at round the baitbox (a new one now and then).
+	## The next waypoint of its way through the water to the baitbox, then
+	## the spot it is lunging at round it (a new one now and then).
+	while not _frenzy_path.is_empty():
+		var w: Vector3 = _frenzy_path[0]
+		if Vector2(global_position.x - w.x, global_position.z - w.z).length() > PATH_CELL:
+			return w
+		_frenzy_path.pop_front()
 	if _state_t <= 0.0 or Vector2(global_position.x - _frenzy_spot.x, global_position.z - _frenzy_spot.z).length() < 0.8:
 		_pick_frenzy_spot()
 	return _frenzy_spot
+
+
+func _wet(x: float, z: float) -> bool:
+	## Ground under the water: where one going for a baitbox may swim.
+	return _ground(x, z) < (world.water_level() if world and world.has_method("water_level") else 0.0)
+
+
+func _water_line(a: Vector3, b: Vector3) -> bool:
+	## Water all the way from a to b (sampled every metre).
+	var n := ceili(Vector2(b.x - a.x, b.z - a.z).length())
+	for i in range(1, n + 1):
+		var p := a.lerp(b, i / float(n))
+		if not _wet(p.x, p.z):
+			return false
+	return true
+
+
+func _water_path(from: Vector3, to: Vector3) -> Array:
+	## Waypoints from `from` to `to` that stay in the water the whole way
+	## (a breadth-first search on a PATH_CELL grid round the two, then
+	## straightened where the water allows). Empty when `from` is out of the
+	## water or no way through it reaches `to`.
+	if not _wet(from.x, from.z):
+		return []
+	if _water_line(from, to):
+		return [to]
+	var lo := Vector2(minf(from.x, to.x), minf(from.z, to.z)) - Vector2.ONE * 24.0
+	var hi := Vector2(maxf(from.x, to.x), maxf(from.z, to.z)) + Vector2.ONE * 24.0
+	var w := ceili((hi.x - lo.x) / PATH_CELL) + 1
+	var h := ceili((hi.y - lo.y) / PATH_CELL) + 1
+	var cell := func(p: Vector3) -> Vector2i:
+		return Vector2i(clampi(roundi((p.x - lo.x) / PATH_CELL), 0, w - 1), clampi(roundi((p.z - lo.y) / PATH_CELL), 0, h - 1))
+	var start: Vector2i = cell.call(from)
+	var goal: Vector2i = cell.call(to)
+	var came := {start: start}
+	var queue: Array[Vector2i] = [start]
+	var head := 0
+	var found := false
+	while head < queue.size():
+		var c: Vector2i = queue[head]
+		head += 1
+		if c == goal or Vector2(c - goal).length() <= 1.5:
+			goal = c
+			found = true
+			break
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]:
+			var n: Vector2i = c + d
+			if n.x < 0 or n.y < 0 or n.x >= w or n.y >= h or came.has(n):
+				continue
+			if not _wet(lo.x + n.x * PATH_CELL, lo.y + n.y * PATH_CELL):
+				continue
+			came[n] = c
+			queue.append(n)
+	if not found:
+		return []
+	var cells: Array[Vector3] = []
+	var c := goal
+	while c != start:
+		cells.push_front(Vector3(lo.x + c.x * PATH_CELL, to.y, lo.y + c.y * PATH_CELL))
+		c = came[c]
+	cells.append(to)
+	# Straighten: from each point, on to the furthest one in a clear line.
+	var path: Array = []
+	var at := from
+	var i := 0
+	while i < cells.size():
+		var j := cells.size() - 1
+		while j > i and not _water_line(at, cells[j]):
+			j -= 1
+		at = cells[j]
+		path.append(at)
+		i = j + 1
+	return path
 
 
 func _thrash(delta: float) -> void:
@@ -2111,7 +2203,21 @@ func _steer(goal: Vector3, spd: float, delta: float) -> void:
 	var fwd := Vector3(sin(heading), 0, cos(heading))
 	var next := global_position + fwd * spd * delta
 	var h := _ground(next.x, next.z)
-	if mode != "land" and not _ok(def.habitat, h):
+	if state == "frenzy" and not _wet(next.x, next.z) and _wet(global_position.x, global_position.z):
+		# Going for a baitbox it keeps to the water: slide along the shore.
+		for turn in [0.5, -0.5, 1.0, -1.0, 1.5, -1.5]:
+			var f := Vector3(sin(heading + turn), 0, cos(heading + turn))
+			var p := global_position + f * spd * delta
+			if _wet(p.x, p.z):
+				heading += turn
+				fwd = f
+				next = p
+				break
+		if not _wet(next.x, next.z):
+			_pick_frenzy_spot()
+			return
+		h = _ground(next.x, next.z)
+	elif mode != "land" and not _ok(def.habitat, h):
 		# Blocked by shore or water: turn away and pick a new goal.
 		heading += PI * 0.5 * (1.0 if _rng.randf() < 0.5 else -1.0)
 		if state != "chase" and state != "charge" and state != "strike":

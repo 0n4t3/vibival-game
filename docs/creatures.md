@@ -57,6 +57,10 @@ water. (It actually lived in the Triassic, so it is out of its time here.)
   may lie: swim for the bank.
 - Its carcass is dragged, and gives 14 raw meat.
 
+**Bait box.** A [bait box](crafting.md#the-bait-box) thrown into the water
+draws the Eogyrinus and Uranocentrodon round it to tear at it for half a
+minute, coming only through the water: a way to clear a stretch of bank.
+
 ### Getting water without being eaten
 
 Uranocentrodon and Eogyrinus are common along every stretch of shore. Most
