@@ -7,7 +7,8 @@ extends "res://src/world/site.gd"
 ## the deck, a slipway and a mooring post.
 ##
 ## Once finished, no big amphibian comes for you on it or in the water right
-## round it (Game.dock_safe): they won't lie among the spiked piles. Until
+## round it (Game.dock_safe), nor anywhere up to LAND_GUARD behind it on the
+## bank (Game.dock_keeps_out): they won't lie among the spiked piles. Until
 ## then it protects nothing. A finished dock marks out a raft (raft.gd) on
 ## its slipway.
 ##
@@ -18,7 +19,8 @@ extends "res://src/world/site.gd"
 const LEN := 9.0
 const HALF_W := 0.9
 const DECK_H := 0.5            # the deck stands this high over the water
-const GUARD := 6.0             # the safe water reaches this far past the end and to each side
+const GUARD := 7.0             # the safe water reaches this far past the end and to each side
+const LAND_GUARD := 30.0       # and no water predator comes this far behind it, up the bank
 const SPACING := 14.0
 const PILE_R := 0.14
 const SINK := 0.4
@@ -41,7 +43,7 @@ const PARTS := [
 	{"id": "pile_3", "verb": "Drive the far right pile", "log": true, "in": {}, "tools": {"stone": 1}, "steps": 5,
 		"how": "Carry a Calamites log out into the water and press E. Click to stand it up, then pound it into the bottom with a river stone."},
 	{"id": "spikes", "verb": "Spike the piles", "in": {"stick": 16, "cordage": 8}, "tool_tag": "cut", "steps": 8,
-		"stand": Vector3(1.9, 0, -5.5), "face": Vector3(0.75, -0.9, -5.5),
+		"stand": Vector3(1.9, 0, -5.5), "face": Vector3(0.0, -0.2, -5.5),
 		"how": "Click each pile to sharpen four sticks with your blade and lash them round it under the water, points out. Big amphibians won't lie among them: this is what makes a finished dock safe."},
 	{"id": "stringers", "verb": "Lash on the stringers", "in": {"board_calamites": 4, "cordage": 4}, "steps": 6,
 		"stand": Vector3(0, 0, 1.0), "face": Vector3(0, -0.1, -3.0),
@@ -132,6 +134,28 @@ func guards(p: Vector3) -> bool:
 		return false
 	var l := to_local(p)
 	return absf(l.x) <= HALF_W + GUARD and l.z >= -LEN - GUARD and l.z <= 1.0
+
+
+func keeps_out(p: Vector3) -> bool:
+	## Whether a finished dock keeps the water predators away from p: the
+	## water GUARD past its end and to each side, and LAND_GUARD behind it,
+	## so stepping off onto the bank is safe too.
+	if preview or not complete():
+		return false
+	var l := to_local(p)
+	return absf(l.x) <= HALF_W + GUARD and l.z >= -LEN - GUARD and l.z <= LAND_GUARD
+
+
+func way_out(p: Vector3) -> Vector3:
+	## The nearest point just past the edge of keeps_out on the water side
+	## (past the far end or off either side), for a predator caught inside.
+	var l := to_local(p)
+	var side := HALF_W + GUARD + 1.0
+	var to_side := side - absf(l.x)
+	var to_end := l.z + LEN + GUARD + 1.0
+	var out := Vector3(signf(l.x if l.x != 0.0 else 1.0) * side, l.y, l.z) if to_side < to_end \
+			else Vector3(l.x, l.y, -LEN - GUARD - 1.0)
+	return to_global(out)
 
 
 func covers(p: Vector3, margin := 0.0) -> bool:

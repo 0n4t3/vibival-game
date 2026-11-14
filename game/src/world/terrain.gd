@@ -8,7 +8,9 @@ const WORLD_RADIUS := 520.0
 # bare bedrock humps where native copper washes up and copper ore weathers
 # out. Placed from the world seed, so they are where they were on every load.
 const ISLANDS := 5
-const ISLAND_RING := [530.0, 600.0]  # how far out their centres lie
+# How far out their centres lie: the marsh shore is about 460 m out, so
+# 140-280 m of open water past it.
+const ISLAND_RING := [600.0, 740.0]
 const ISLAND_R := [26.0, 44.0]       # their radius, out to the foot of the shelf
 const ISLAND_TOP := [3.0, 7.0]       # how high they stand
 const ISLAND_FOOT := -3.0            # the shelf meets the sea floor this deep

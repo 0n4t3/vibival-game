@@ -79,8 +79,22 @@ func setup_common(spawn: Vector3, vitals: bool) -> void:
 		pause.open.call_deferred()
 	if Game.dev.has("open-debug") and has_method("open_debug"):
 		call_deferred("open_debug")
-	if Game.dev.has("work"):
+	if Game.dev.has("chart"):
+		_dev_chart.call_deferred(float(Game.dev["chart"]))
+	if Game.dev.has("open-map") and has_method("open_map"):
+		call_deferred("open_map")
+	if Game.dev.has("work") or Game.dev.has("anvil"):
 		_dev_work.call_deferred()
+
+
+func _dev_chart(r: float) -> void:
+	## --chart=METRES: the map charted that far round where you start.
+	var Chart := preload("res://src/core/chart.gd")
+	Chart.ensure()
+	var p := player.global_position
+	for k in Chart.GRID * Chart.GRID:
+		if Chart.center(k).distance_to(Vector2(p.x, p.z)) <= r:
+			Game.chart[k] = 1
 
 
 func _show_touch() -> void:
@@ -134,22 +148,30 @@ func _input(event: InputEvent) -> void:
 func _dev_work() -> void:
 	## --work=id:n,... kneels and lays those items out; --work-make=out starts
 	## that recipe and --work-steps=N does N steps of it (strikes, for knapping).
-	## With --trap, you kneel at the trap to bait it.
+	## With --trap, you kneel at the trap to bait it. --anvil=STAGE (0 rough
+	## to 3 seated) puts an anvil stone down in front of you and kneels at it;
+	## --work-make=shape then starts its next stage of shaping.
 	var traps := get_tree().get_nodes_in_group("traps")
-	if Game.dev.has("trap") and not traps.is_empty():
+	if Game.dev.has("anvil") and has_method("add_heavy_stone"):
+		var f := fwd_flat()
+		var st: Node3D = call("add_heavy_stone", "anvil_stone", player.global_position + f * 1.3, atan2(f.x, f.z) + 0.4)
+		for k in clampi(int(Game.dev["anvil"]), 0, 3):
+			st.advance()
+		_kneel_beside(st, "station", {"station_kind": st.station_kind()})
+	elif Game.dev.has("trap") and not traps.is_empty():
 		start_trap_work(traps[0])
 	else:
 		start_work()
 	if work == null:
 		return
-	for part in String(Game.dev["work"]).split(",", false):
+	for part in String(Game.dev.get("work", "")).split(",", false):
 		var kv: PackedStringArray = part.split(":")
 		var i: int = Game.inventory.find(kv[0])
 		if i >= 0:
 			work.lay(i, int(kv[1]) if kv.size() > 1 else 1)
 	if not Game.dev.has("work-make"):
 		return
-	work.begin(Items.recipe_for(Game.dev["work-make"], where))
+	work.begin(work.shape_option() if Game.dev["work-make"] == "shape" else Items.recipe_for(Game.dev["work-make"], where))
 	var n := int(Game.dev.get("work-steps", "0"))
 	for k in n:
 		match work.recipe.get("act", ""):
@@ -157,6 +179,9 @@ func _dev_work() -> void:
 				work.step()
 			"twist":
 				work.twist(0.1)
+			"peck":
+				var hs: Array = work.station.heights()
+				work.peck_cell(hs.find(hs.max()))
 			"knap":
 				var keep := Items.knap_grid(work.recipe.knap)
 				for c in 25:

@@ -241,7 +241,10 @@ major) losing `BLEED_RATE` [0, 0.12, 0.18, 0.6] blood/s.
   `INFECT_RATE` 0.002 × dirt per second (×0.5 covered over dirt, ×2 low greens).
 - Minor: after `MINOR_TIME` (720 s) it clears, or worsens with chance
   `MINOR_WORSEN` (10% clean and covered, 30% otherwise). Covering it when
-  clean (washed) clears it at once.
+  clean (washed) clears it at once. One that set in while `Game.time` <
+  `EARLY_TIME` (2880 s, the world's first two days) is marked `early` and
+  always clears: washing needs a clay pot, which a new player may not have
+  yet. `_set_inf` clears the mark, so only that minor stage is spared.
 - Moderate → major after `MODERATE_TIME` (1440 s); major → sepsis after
   `MAJOR_TIME`; remission → major after `REMISSION_TIME`. Sepsis: no cure.
 - `wash(i, alcohol)`: dirt to 0, the cover comes off an infected wound (or
@@ -268,8 +271,10 @@ tests.
 
 `problems()` lists every problem worst first as `{words, color, rank, say,
 advice}`; `status_words()` (the HUD corner) is the first one or two
-`words` (cravings tie, so when the first is one it names them all, "Craving
-greens and starch"); `summary()` heads the Health tab (sepsis says `SEPSIS_TEXT`). The
+`words`, leaving out hunger, thirst and cravings, which have their own HUD
+lines (`hunger_words`, `thirst_words`, `craving_words`, the last naming every
+nutrient you are short of, "Craving greens and starch") so a worse problem
+like venom can't hide them; `summary()` heads the Health tab (sepsis says `SEPSIS_TEXT`). The
 Health tab shows the condition bars, limbs, vitals and nutrients, then each
 problem's `say` and `advice`, and a card per wound (bleeding, cover,
 infection, depth, dirt, `wound_advice`) with Apply pressure, Wash, Alcohol,
@@ -587,7 +592,10 @@ the player (weaving) at its `speed` where the water is deeper than -0.15, and
 (freed, ripple), unless a reel takes line back first. Each `reel()` takes `REEL_STEP` (1.2 m) off `line_len`
 (down to `AT_FEET` × 0.8). The fish is held to `line_len` from the player
 (dragged), at the surface in water or on the floor on land ("landed": no
-swimming, no pull). At `AT_FEET` (1.8 m) on land it says to strike it. Every
+swimming, no pull). Over a finished dock's or raft's deck (`deck_top`) it is
+landed too, hauled up onto the deck rather than left in the water under it,
+and it never swims in under one; a fish on a deck flops and suffocates as on
+land, and dies where it lies (`creature._floor_below`). At `AT_FEET` (1.8 m) on land it says to strike it. Every
 `PREDATOR_EVERY` (2 s), in hostile worlds, each ambusher or lurker within
 `PREDATOR_RANGE` (12 m) has `PREDATOR_CHANCE` (20%) of `taken_by`: it
 lunges (`lure`), the fish is freed. A landed fish out of `SHORE_REACH` (6 m) of
@@ -652,11 +660,16 @@ bench.
 Two more recipe fields: `tool_tag` asks for any tool with that tag laid out
 or in the bag (the ash pencil's "cut": a chert blade or a stone axe), named
 by `Items.TAG_TOOLS` in `missing_for` and the book. An input whose item has
-`empty` is used up and its empty container given back in `_finish` (the wet
-sheet's pot of water; a Pot of Boiled Water has `as` "pot_dirty", so either
-pot will do). The paper items are `paper_wet` (cooks into `paper_sheet`),
+`empty` is used up and its empty container given back in `_finish` (a Pot
+of Boiled Water has `as` "pot_dirty", so either pot will do where a recipe
+wants `pot_dirty`). The wet sheet wants `any_water`, which `counts_as` takes
+from any of `Items.ANY_WATER` (pots, canteens and flasks of swamp or boiled
+water); one serving goes, and the canteen or flask comes back one serving
+lighter. The paper items are `paper_wet` (cooks into `paper_sheet`),
 `pencil_core_unfired` (cooks into `pencil_core`) and `ash_pencil`, in the
-"Writing" category; none of them has `energy`, so none chars in a fire.
+"Writing" category (`paper_wet` is `listed`, so the book shows it there rather
+than on the Rack tools page); the papermaking tools themselves are made under
+"Workbench" with the other rack tools. None of them has `energy`, so none chars in a fire.
 Small work is drawn bigger at the spot (`work_spot.ZOOM`, the work mesh's
 scale; marker targets are scaled with it).
 
@@ -678,7 +691,7 @@ returns uses left, 0 when it is gone). A recipe with `wear` and `sharpen`
 (step indices) wears its tool on those steps (`work_spot._wear`, from the
 bag or its pile); `missing_for` asks for one with `sharpen.size()` uses left,
 and the book says so. The blueprint item `blueprint_softwood_house` (shape
-"blueprint", "Blueprints" category, bench tier, `tool_tag` "cut") has
+"blueprint", "Writing" category, bench tier, `tool_tag` "cut") has
 `blueprint` "softwood_house". Its drawing is `Assets.BLUEPRINT`: line
 groups drawn one a step on the sheet (`blueprint_lines`, `line_on`).
 
@@ -712,6 +725,10 @@ for dev and tests.
 - **Teardown**: `TEARDOWN_HITS` (3) within `HIT_WINDOW` (4 s) on an unfinished
   house: logs back via `add_log`, everything else as piles, and anything
   standing on its floor dropped to the ground.
+- **Falling**: `swamp.floor_below(p)` is the highest floor, deck or ground
+  under p however far above it p is; an animal killed in the air (or dropped
+  from jaws) comes to rest on it (`creature._floor_below`), so a dragonfly
+  struck over a dock lies on the deck.
 - **Floor**: `swamp.floor_height(p)` is the max of the ground and any
   house's `floor_top(p)` below p (only when p is up at the floor: from
   0.8 m under it to `WALL_H` + 1 above). Stashes, piles, drops, the bench,
@@ -910,27 +927,35 @@ freshness bar).
 
 ### Preserving pots (`src/core/preserves.gd`)
 
-- **Items**: `pot_preserves` (open; shape `pot_water`) and `pot_sealed`
+- **Items**: `pot_preserves` ("Unsealed Pot of Preserves"; shape `pot_water`) and `pot_sealed`
   (shape `pot_capped`), both `preserves`. Everything is in the slot's
   `data`: `items` [{id, age}], `fluid`, `w` (weight: `Preserves.weight_of`,
   pot + `SERVING_W` 1.5 + food). An open pot's data also has `since`
   (Game.time it was filled), `name` and `desc` (`listing`). A sealed pot
   has none of those three, so it shows only the item's own name and
   description.
-- **Filling**: the vessel window (`inventory_ui._add_pot_section`, with an
-  empty `pot` in the bag) picks 1–`MAX` (4) of
-  `FermentVessel.preserved_indices()` into `_pot_pick`. "Fill the pot"
-  calls `fill_pot_from`, which calls `FermentVessel.fill_pot(ks)`:
+- **Filling**: holding a `pot`, E at a vessel with preserved food
+  (`FermentVessel.interact`, refused with `fill_blocker()`) calls
+  `world.open_vessel(v, "fill_pot")`. That is the vessel page with
+  `inventory_ui.filling` set (`_fill_pot_page`, the "Put in" panel hidden),
+  which picks 1–`MAX` (4) of `FermentVessel.preserved_indices()` into
+  `_pot_pick`. "Fill the pot" calls `fill_pot_from` (the held pot, else the
+  first in the bag) and closes the menu. It calls
+  `FermentVessel.fill_pot(ks)`:
   - It takes the items (`take`, so salting takes a measure of salt each)
     and one serving of `water`.
   - It refuses a rancid or dirty vessel, unpreserved food, more than `MAX`,
     or a draw that would leave more food than liquid.
   - The fluid is `Preserves.FLUIDS[mode()]`.
-- **Sealing**: `Preserves.seal(inv, i)` takes a `wooden_cap` and a `wax`. It
-  ages the food by the time since `since`, and drops `since`, `name` and
-  `desc`.
+- **Sealing**: the hand recipe `pot_sealed` (`pot_preserves`, `wooden_cap`,
+  `wax`; `"seal": true`, 3 steps). A preserving pot can be laid at a work
+  spot with its data: it gets its own pile (`{id, n, age, data}`, never
+  merged), and `take_back`, `return_all`, `cancel` and `_take_pile` keep the
+  data. `_finish` for a `seal` recipe gives `pot_sealed` with
+  `Preserves.sealed_data(d)`: the food aged by the time since `since`, and no
+  `since`, `name` or `desc`.
 - **Opening**: `Preserves.open(inv, i)` (`player.use_preserves`, Use or the
-  bag's Seal/Open buttons) leaves a `pot` in the slot. It adds the food with
+  bag's Open button) leaves a `pot` in the slot. It adds the food with
   its ages brought up to now (`contents`), plus the cap from a sealed pot;
   what doesn't fit is spawned at `drop_point`.
 - **Weight**: `Items.slot_weight(s)` is a slot's per-item weight, with
@@ -1621,8 +1646,15 @@ A `frenzy` item (baitbox) is different: see "Baitbox".
   item descriptions and the recipe book use it too.
 - **Tab menu** (`inventory_ui.gd`), three tabs:
   - *Inventory*: the grid, item info (the description label is a fixed
-    `DESC_LINES` (10) tall and clips, so a long description doesn't make the
-    centred menu jump), Eat/Drink, Treat wound, **Drop** (kept)
+    `DESC_LINES` (8) tall and clips). The page isn't centred: `_layout` pins
+    its top where the inventory page (`_ref_h`, measured once) would be
+    centred, so nothing jumps as hovering, a stash or a tab changes its
+    height. It is centred across, and refitted whenever its minimum size
+    changes (a page never shrinks by itself, so a narrower tab or a closed
+    stash would otherwise leave it wide with everything to the left); on a short screen the page is scaled down to fit, and the tall
+    scrolling lists (`_fit`) shrink to the room left. The recipe book shows
+    one entry for each `Items.BOOK_GROUPS` group (every way of tearing up
+    meat bait, every small animal gutted and skinned). Eat/Drink, Treat wound, **Drop** (kept)
     and **Discard** (gone on reload), a short condition line, and Rest
     (sleep from here, with the spot's risk).
   - *Health*: the summary, condition bars, vitals and nutrients, what to do
@@ -1639,7 +1671,9 @@ A `frenzy` item (baitbox) is different: see "Baitbox".
 - **Work UI** (`work_ui.gd`): the Make list (`_side`), instructions
   (`_top`), the twist progress bar and the inventory tray. Recipe buttons have
   no tooltips: pointing at one shows its how-text in the instructions
-  (`_show_how`) while no recipe is underway. `_ranked` lists first the recipes
+  (`_show_how`) while no recipe is underway; the instructions are as tall as
+  the longest how-text wraps to from the start (`info_height`), so pointing
+  at one never grows them and pushes the Make list up. `_ranked` lists first the recipes
   that use the most kinds of laid-out items. Every frame `_frame_work()`
   projects `work_spot.view_points()` (the look point, the marker and the
   marks still to come, the piles, the work mesh's corners) and keeps their box
@@ -1718,7 +1752,10 @@ slider.
 `Music.enter(scene, fresh)` is called by `Game.goto`. It stops the track, then:
 the lab has no music (but `Music.elevator(on)` plays
 `music/elevator.mp3`, looping, from when you are in the car until you
-step out; `find_tracks` skips it); the title waits `TITLE_WAIT` (30 s); a new world's
+step out; `find_tracks` skips it); the title queues `TITLE_FIRST` ("Dusk") after
+`TITLE_WAIT` (20 s), and on the title `next_gap` always uses the Constant gap
+and `quiet_until` ignores `MAX_SHARE`, so tracks keep following it (unless
+music is Off); a new world's
 swamp (not Constant) queues `OPENING` ("Empty Basin") after `OPENING_WAIT`
 (30 s); anything else waits a quarter of a normal gap.
 

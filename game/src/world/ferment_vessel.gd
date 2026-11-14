@@ -605,6 +605,9 @@ func prompt(player: Node) -> String:
 	if not fired_pot():
 		return "Pick up the %s [E]" % Items.item_name(item_id).to_lower()
 	var more := "   Open [Right-click]   Carry [C]"
+	if held == "pot" and not preserved_indices().is_empty():
+		var why := fill_blocker()
+		return ("Fill the clay pot with preserves [E]" if why == "" else why) + more
 	if POURS.has(held):
 		return "Pour in a serving of %s [E]" % ("boiled water" if POURS[held] else "swamp water") + more
 	if DRAWS.has(held) and mode() == "alcohol" and not items.is_empty():
@@ -635,7 +638,12 @@ func interact(player: Node) -> void:
 		player.start_haul(self)
 		return
 	var why := ""
-	if POURS.has(held):
+	if held == "pot" and not preserved_indices().is_empty():
+		# Pick what goes in the pot in a menu of its own.
+		why = fill_blocker()
+		if why == "" and player.world and player.world.has_method("open_vessel"):
+			player.world.open_vessel(self, "fill_pot")
+	elif POURS.has(held):
 		why = pour(POURS[held])
 		if why == "":
 			var def := Items.def(held)
@@ -730,15 +738,23 @@ func preserved_indices() -> Array:
 	return out
 
 
+func fill_blocker() -> String:
+	## Why a clay pot can't be filled from it now, or "".
+	if not fired_pot() or rancid or dirty or preserved_indices().is_empty():
+		return "There is nothing fit to preserve in it."
+	if water < 1:
+		return "There is no liquid left to cover them."
+	return ""
+
+
 func fill_pot(ks: Array) -> Dictionary:
 	## Draws items ks (1 to Preserves.MAX of the preserved ones) and one
 	## serving of the liquid into a clay pot: {items, fluid}, or {why}.
-	if not fired_pot() or rancid or dirty:
-		return {"why": "There is nothing fit to preserve in it."}
+	var why := fill_blocker()
+	if why != "":
+		return {"why": why}
 	if ks.is_empty() or ks.size() > Preserves.MAX:
 		return {"why": "Pick 1 to %d preserved items for the pot." % Preserves.MAX}
-	if water < 1:
-		return {"why": "There is no liquid left to cover them."}
 	for k in ks:
 		if k < 0 or k >= items.size() or Items.cure_of(items[k].id) == "":
 			return {"why": "Only preserved food goes in a pot."}

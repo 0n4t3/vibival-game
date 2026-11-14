@@ -19,6 +19,7 @@ var vessel: Node = null    # the fermentation vessel open, if any (its own page)
 var _vessel_page: Control
 var _vessel_box: VBoxContainer
 var _vessel_add: VBoxContainer
+var filling := false         # the vessel page is the menu to fill a clay pot of preserves
 var _pot_pick: Array = []    # vessel items picked to go in a preserving pot
 var _pot_vessel: Node = null # the vessel they were picked from
 
@@ -35,12 +36,21 @@ var _stash_weight: Label
 var _pickup_btn: Button
 var _name: Label
 var _desc: Label
-const DESC_LINES := 10  # the item description's fixed height, in lines
+const DESC_W := 300.0  # the item description's width, beside the grid
+const DESC_STATS := "Energy +10  Protein +10  Greens +10  Starch +10  Water +10  0.25 kg (2.5 kg)  Risky to eat"
+## The page is pinned at the top rather than centred, so nothing jumps as its
+## height changes (hovering items, opening containers, switching tabs): its
+## top sits where the inventory page (`_ref_h`, measured once) is centred, and
+## on a screen too short for that the whole page is scaled down to fit. The
+## tall scrolling lists of the other pages shrink to the room left (_fits).
+var _page: VBoxContainer
+var _ref_h := 0.0
+var _tab_row: HBoxContainer
+var _fits: Array = []      # [[ScrollContainer, tallest, height taken up round it]]
 var _use_btn: Button
 var _treat_btn: Button
 var _drop_btn: Button
 var _discard_btn: Button
-var _seal_btn: Button
 var _open_btn: Button
 var _weight: Label
 var _condition: Label
@@ -101,14 +111,20 @@ func _ready() -> void:
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(shade)
 
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 8)
-	center.add_child(page)
+	add_child(page)
+	_page = page
+	page.resized.connect(_layout)
+	resized.connect(_layout)
+	# A page never shrinks by itself: when it gets narrower (another tab, a
+	# container closed, a shorter description) fit it again, or it stays as
+	# wide as before with everything pushed to its left.
+	page.minimum_size_changed.connect(func(): _layout.call_deferred())
+	visibility_changed.connect(func(): _layout.call_deferred())
 	var tab_row := HBoxContainer.new()
 	page.add_child(tab_row)
+	_tab_row = tab_row
 	for t in ["Inventory", "Health", "Recipes"]:
 		var b := Button.new()
 		b.text = t
@@ -140,20 +156,29 @@ func _ready() -> void:
 	grid.columns = 6
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
-	inv_box.add_child(grid)
+	# The hovered item's name and description sit beside the grid, in the room
+	# the hint above leaves there, rather than under it making the menu tall.
+	var grid_row := HBoxContainer.new()
+	grid_row.add_theme_constant_override("separation", 16)
+	inv_box.add_child(grid_row)
+	grid_row.add_child(grid)
 	_fill_grid(grid, _slots, false)
+	var about := VBoxContainer.new()
+	about.add_theme_constant_override("separation", 4)
+	grid_row.add_child(about)
 	_name = Label.new()
 	_name.add_theme_font_size_override("font_size", 18)
-	inv_box.add_child(_name)
+	about.add_child(_name)
 	_desc = Label.new()
 	_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_desc.add_theme_font_size_override("font_size", 14)
-	# A fixed height, room for the longest description and its stats: the page
-	# is centred, so a label that grew with its text would make the whole menu
-	# jump up and down as you hover over items.
+	# A fixed size, room for the longest description and its stats, so nothing
+	# moves as you hover over items.
 	_desc.clip_text = true
-	_desc.custom_minimum_size = Vector2(390, (_desc.get_theme_font("font").get_height(14) + _desc.get_theme_constant("line_spacing")) * DESC_LINES)
-	inv_box.add_child(_desc)
+	var font: Font = _desc.get_theme_font("font")
+	var spacing: int = _desc.get_theme_constant("line_spacing")
+	_desc.custom_minimum_size = Vector2(DESC_W, (font.get_height(14) + spacing) * desc_lines(font, 14))
+	about.add_child(_desc)
 	var btns := HBoxContainer.new()
 	inv_box.add_child(btns)
 	_use_btn = _button("Eat / Drink", _on_use)
@@ -162,11 +187,9 @@ func _ready() -> void:
 	_drop_btn.tooltip_text = "Put it on the ground. It stays there."
 	_discard_btn = _button("Discard", _on_discard)
 	_discard_btn.tooltip_text = "Throw it away. It is gone once you leave or reload."
-	_seal_btn = _button("Seal", _on_seal)
-	_seal_btn.tooltip_text = "Seal it with a wooden cap and a lump of wax: nothing in it spoils."
 	_open_btn = _button("Open", _on_open)
 	_open_btn.tooltip_text = "Take all the food out into your bag."
-	for b in [_use_btn, _treat_btn, _seal_btn, _open_btn, _drop_btn, _discard_btn]:
+	for b in [_use_btn, _treat_btn, _open_btn, _drop_btn, _discard_btn]:
 		btns.add_child(b)
 	_condition = Label.new()
 	_condition.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -212,6 +235,40 @@ func _ready() -> void:
 	Game.inventory.changed.connect(_refresh)
 	Settings.input_changed.connect(_input_changed)
 	Assets.icons_ready.connect(_refresh)
+
+
+static func desc_lines(font: Font, size: int) -> int:
+	## Lines enough for the longest item description, with a full line of
+	## stats under it, at DESC_W.
+	var most := 1
+	for id in Items.ITEMS:
+		var n := 0
+		for para in [str(Items.ITEMS[id].get("desc", "")), DESC_STATS]:
+			n += maxi(1, ceili(font.get_multiline_string_size(para, HORIZONTAL_ALIGNMENT_LEFT, DESC_W, size).y / font.get_height(size) - 0.01))
+		most = maxi(most, n)
+	return most
+
+
+func _layout() -> void:
+	## Pins the page's top edge and fits the scrolling lists to the screen.
+	if _page == null or size.y <= 0.0:
+		return
+	if _ref_h <= 0.0:
+		_ref_h = _tab_row.get_combined_minimum_size().y + 8.0 + _inv_page.get_combined_minimum_size().y
+	var k := clampf((size.y - 24.0) / _ref_h, 0.6, 1.0)
+	var top := maxf(12.0, roundf((size.y - _ref_h * k) * 0.5))
+	var room := (size.y - top - 12.0) / k
+	for f in _fits:
+		var want := clampf(room - float(f[2]), 160.0, float(f[1]))
+		if absf(f[0].custom_minimum_size.y - want) > 0.5:
+			f[0].custom_minimum_size.y = want
+	_page.scale = Vector2(k, k)
+	_page.reset_size()
+	_page.position = Vector2(roundf((size.x - _page.size.x * k) * 0.5), top)
+
+
+func _fit(scroll: ScrollContainer, tallest: float, around: float) -> void:
+	_fits.append([scroll, tallest, around])
 
 
 func _fill_grid(grid: GridContainer, into: Array[Button], store: bool) -> void:
@@ -280,7 +337,7 @@ func open(with_stash: Node = null, page := "inventory") -> void:
 	_sel = -1
 	_hover = -1
 	show_page(page if stash == null else "inventory")
-	if vessel == null and page == "vessel":
+	if vessel == null and page in ["vessel", "fill_pot"]:
 		show_page("inventory")
 	_slots[Game.inventory.selected].grab_focus()
 
@@ -301,6 +358,9 @@ func _input_changed() -> void:
 
 
 func show_page(page: String) -> void:
+	filling = page == "fill_pot"
+	if filling:
+		page = "vessel"
 	if page != "vessel":
 		vessel = null
 	_inv_page.visible = page == "inventory"
@@ -529,7 +589,6 @@ func _refresh_info() -> void:
 		_treat_btn.disabled = true
 		_drop_btn.disabled = true
 		_discard_btn.disabled = true
-		_seal_btn.visible = false
 		_open_btn.visible = false
 		_use_btn.visible = true
 		return
@@ -571,8 +630,6 @@ func _refresh_info() -> void:
 	_treat_btn.disabled = not mine or not def.has("treat") or not player.vitals_enabled
 	_drop_btn.disabled = not mine
 	_discard_btn.disabled = not mine
-	_seal_btn.visible = s.id == "pot_preserves"
-	_seal_btn.disabled = not mine or Game.inventory.count("wooden_cap") < 1 or Game.inventory.count("wax") < 1
 	_open_btn.visible = def.get("preserves", false)
 	_open_btn.disabled = not mine
 	_use_btn.visible = not _open_btn.visible
@@ -668,6 +725,7 @@ func _build_health(parent: Control) -> void:
 	row.add_child(cond)
 	var cscroll := ScrollContainer.new()
 	cscroll.custom_minimum_size = Vector2(360, 470)
+	_fit(cscroll, 470.0, 110.0)
 	cscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cond.get_child(0).add_child(cscroll)
 	_vitals_box = VBoxContainer.new()
@@ -687,6 +745,7 @@ func _build_health(parent: Control) -> void:
 	ib.add_child(_wash_btn)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(460, 400)
+	_fit(scroll, 400.0, 180.0)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	ib.add_child(scroll)
 	_wound_box = VBoxContainer.new()
@@ -805,6 +864,8 @@ func wound_advice(w: Dictionary) -> String:
 		Survival.INF_MODERATE:
 			return "Moderate infection. Clean it with alcohol%s, then bandage it." % (" (done)" if w.sterile else "")
 		Survival.INF_MINOR:
+			if w.get("early", false):
+				return "Minor infection. Keep it clean and covered: it will clear by itself."
 			return "Minor infection. Wash it with boiled water and cover it. It may clear by itself, or get worse."
 	if w.bleed == 1:
 		return "Bleeding a little. It will stop on its own."
@@ -932,6 +993,7 @@ func _build_vessel(parent: Control) -> void:
 	row.add_child(inside)
 	var s1 := ScrollContainer.new()
 	s1.custom_minimum_size = Vector2(420, 460)
+	_fit(s1, 460.0, 110.0)
 	s1.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	inside.get_child(0).add_child(s1)
 	_vessel_box = VBoxContainer.new()
@@ -942,6 +1004,7 @@ func _build_vessel(parent: Control) -> void:
 	row.add_child(yours)
 	var s2 := ScrollContainer.new()
 	s2.custom_minimum_size = Vector2(360, 460)
+	_fit(s2, 460.0, 110.0)
 	s2.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	yours.get_child(0).add_child(s2)
 	_vessel_add = VBoxContainer.new()
@@ -977,7 +1040,6 @@ func _vessel_do(what: String, arg = null) -> void:
 	match what:
 		"take":
 			v.take_to_bag(int(arg))
-			_pot_pick.clear()
 		"pick":
 			var k := int(arg)
 			if k in _pot_pick:
@@ -986,6 +1048,9 @@ func _vessel_do(what: String, arg = null) -> void:
 				_pot_pick.append(k)
 		"fill_pot":
 			why = fill_pot_from(v)
+			if why == "" and visible and player and player.world and player.world.has_method("toggle_inventory"):
+				player.world.toggle_inventory()  # done: back to the world
+				return
 		"food":
 			var i: int = inv.find(String(arg))
 			if i >= 0:
@@ -1018,6 +1083,11 @@ func _refresh_vessel() -> void:
 		_pot_vessel = v
 		_pot_pick.clear()
 	var title: Label = (_vessel_page.get_child(0).get_child(0) as VBoxContainer).get_child(0)
+	_vessel_page.get_child(1).visible = not filling  # what you can put in
+	if filling:
+		title.text = "Fill a Clay Pot"
+		_fill_pot_page(v)
+		return
 	title.text = Items.item_name(v.item_id)
 	for line in v.tooltip(player).split("\n").slice(1):
 		_vessel_box.add_child(_small(line, Color(0.95, 0.9, 0.7)))
@@ -1034,7 +1104,6 @@ func _refresh_vessel() -> void:
 		if Items.cure_of(it.id) == "" and it.id != "rotten" and v.mode() != "salt":
 			note = "  (%s to go)" % v._hours(v.FERMENT_TIME - it.t)
 		_vessel_box.add_child(_item_row(it.id, Items.item_name(it.id) + note, "Take", _vessel_do.bind("take", k)))
-	_add_pot_section(v)
 	# What you can put in.
 	var seen := {}
 	for s in Game.inventory.slots:
@@ -1054,21 +1123,25 @@ func _refresh_vessel() -> void:
 		_vessel_add.add_child(_small("You carry nothing that goes in it: fresh food, boiled water in a pot or canteen%s." % (", or salt" if v.sealed() else "")))
 
 
-func _add_pot_section(v: Node) -> void:
-	## With an empty clay pot in the bag: pick 1-4 of the preserved items to
-	## draw into it with one serving of the liquid.
+func _fill_pot_page(v: Node) -> void:
+	## Holding an empty clay pot at the vessel (E): pick 1-4 of its preserved
+	## items to draw into the pot with one serving of the liquid.
 	var ready: Array = v.preserved_indices()
 	_pot_pick = _pot_pick.filter(func(k): return k in ready)
-	if ready.is_empty() or Game.inventory.count("pot") < 1:
-		if not ready.is_empty():
-			_vessel_box.add_child(_small("Carry an empty clay pot to fill a pot of preserves from it.", Color(1, 1, 1, 0.6), 12))
+	var why: String = v.fill_blocker()
+	if why == "" and Game.inventory.count("pot") < 1:
+		why = "You have no empty clay pot."
+	if why != "":
+		_vessel_box.add_child(_small(why))
 		return
+	_vessel_box.add_child(_small("Pick 1 to %d preserved items from the %s. They go in with one serving of the %s." \
+			% [Preserves.MAX, Items.item_name(v.item_id).to_lower(), Preserves.FLUIDS[v.mode()]], Color(0.95, 0.9, 0.7)))
 	_vessel_box.add_child(HSeparator.new())
-	_vessel_box.add_child(_small("Fill a clay pot: pick 1 to %d preserved items. They go in with one serving of the %s." % [Preserves.MAX, Preserves.FLUIDS[v.mode()]], Color(0.95, 0.9, 0.7)))
 	for k in ready:
 		var picked: bool = k in _pot_pick
 		_vessel_box.add_child(_item_row(v.items[k].id, Items.item_name(v.items[k].id), "Picked" if picked else "Pick",
 				_vessel_do.bind("pick", k), not picked and _pot_pick.size() >= Preserves.MAX))
+	_vessel_box.add_child(HSeparator.new())
 	var fill := _button("Fill the pot (%d)" % _pot_pick.size(), _vessel_do.bind("fill_pot"))
 	fill.disabled = _pot_pick.is_empty()
 	_vessel_box.add_child(fill)
@@ -1078,7 +1151,7 @@ func fill_pot_from(v: Node) -> String:
 	## Draws the picked items and a serving of liquid into an empty clay pot
 	## from the bag. Returns why not, or "".
 	var inv = Game.inventory
-	var i: int = inv.find("pot")
+	var i: int = inv.selected if inv.held_id() == "pot" else inv.find("pot")
 	if i < 0:
 		return "You have no empty clay pot."
 	var got: Dictionary = v.fill_pot(_pot_pick)
@@ -1087,21 +1160,14 @@ func fill_pot_from(v: Node) -> String:
 	_pot_pick.clear()
 	inv.replace(i, "pot_preserves", 0.0, Preserves.filled_data(got.items, got.fluid))
 	Sfx.play("splash", -10.0, 0.2)
-	Game.notify("You fill a pot of preserves: %s." % Preserves.listing(got.items))
+	Game.notify("You fill the clay pot: %s. Seal it with a wooden cap and wax (Craft) to keep it." % Preserves.listing(got.items))
 	return ""
-
-
-func _on_seal() -> void:
-	var i := _focus_slot()
-	if i >= 0 and player != null:
-		player.use_preserves(i, "seal")
-		_refresh()
 
 
 func _on_open() -> void:
 	var i := _focus_slot()
 	if i >= 0 and player != null:
-		player.use_preserves(i, "open")
+		player.use_preserves(i)
 		_refresh()
 
 
@@ -1125,11 +1191,17 @@ func _build_book(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	p.get_child(0).add_child(row)
+	var cscroll := ScrollContainer.new()
+	cscroll.custom_minimum_size = Vector2(186, 470)
+	cscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	row.add_child(cscroll)
+	_fit(cscroll, 470.0, 110.0)
 	_cats = VBoxContainer.new()
 	_cats.custom_minimum_size = Vector2(170, 0)
-	row.add_child(_cats)
+	cscroll.add_child(_cats)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(560, 470)
+	_fit(scroll, 470.0, 110.0)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	row.add_child(scroll)
 	_book = VBoxContainer.new()
@@ -1200,7 +1272,13 @@ func _refresh_book() -> void:
 		head.add_theme_font_size_override("font_size", 14)
 		head.modulate = Color(0.9, 0.85, 0.6)
 		_book.add_child(head)
+		var shown := {}
 		for r in list:
+			var g := Items.book_group(r)
+			if g != "":
+				if shown.has(g):
+					continue  # one entry for every way of making it
+				shown[g] = true
 			_book.add_child(_book_entry(r))
 
 
@@ -1212,21 +1290,31 @@ func _set_cat(c: String) -> void:
 func _book_entry(r: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
+	var g: Dictionary = Items.BOOK_GROUPS.get(Items.book_group(r), {})
 	var icon := ItemIcon.new()
-	icon.id = r.out
+	icon.id = g.get("icon", r.out)
 	icon.custom_minimum_size = Vector2(56, 56)
 	row.add_child(icon)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(col)
 	var title := Label.new()
-	title.text = Items.item_name(r.out) + (" x%d" % r.n if r.n > 1 else "")
+	title.text = g.get("title", Items.item_name(r.out) + (" x%d" % r.n if r.n > 1 else ""))
 	title.add_theme_font_size_override("font_size", 17)
 	col.add_child(title)
 	var parts := []
 	for id in r.in:
 		parts.append("%d %s" % [r.in[id], Items.item_name(id)])
 	var lines := ["Needs: " + ", ".join(parts)]
+	if not g.is_empty():
+		var needs: String = g.needs
+		if "%s" in needs:
+			var kinds := []
+			for o in Items.RECIPES:
+				if Items.book_group(o) == Items.book_group(r):
+					kinds.append(Items.item_name(o.in.keys()[0]).trim_suffix(" Carcass"))
+			needs = needs % ", ".join(kinds)
+		lines = ["Needs: " + needs]
 	for id in r.get("tools", {}):
 		lines.append("Tool (kept): " + Items.item_name(id))
 	if r.has("tool_tag"):
@@ -1235,7 +1323,7 @@ func _book_entry(r: Dictionary) -> Control:
 		lines.append("Sharpening wears the %s: %d use%s off it" % [Items.item_name(r.wear).to_lower(), r.sharpen.size(), "" if r.sharpen.size() == 1 else "s"])
 	if r.has("rack"):
 		lines.append("On the workbench rack: " + Items.item_name(r.rack) + (" (or in your bag)" if r.get("rack_or_bag", false) else ""))
-	lines.append("%s: %s" % [r.verb, Settings.hint(r.how)])
+	lines.append("%s: %s" % [g.get("verb", r.verb), Settings.hint(g.get("how", r.how))])
 	var body := Label.new()
 	body.text = "\n".join(lines)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

@@ -32,8 +32,10 @@ kneel (C) with what it needs laid out:
 | Slipway | 2 branches, 4 Calamites boards and 2 cordage |
 | Mooring post | A branch and 2 cordage |
 
-**A finished dock is safe.** No big amphibian comes for you on it, or in the
-water right round it: they won't lie among the spiked piles. Until it is
+**A finished dock is safe.** No big amphibian comes for you on it, in the
+water within 7 m of its sides and end, or on the bank up to 30 m behind it,
+so stepping off it onto land is safe too: they won't lie among the spiked
+piles. Until it is
 finished it protects nothing. Before it is finished, three blows of an axe or
 mattock tear it down and leave what it took on the ground.
 
@@ -49,7 +51,8 @@ at it, C). Step onto the raft and press E to board. Holding a pole, the
 movement keys push the raft along, at any depth. It is slow, keeps drifting
 once it is moving, and the wind pushes it. It rides very high, so it floats
 in all but the barest shallows; where it grounds, step off and wade. Step off
-next to a finished dock and it ties up there.
+next to a finished dock and it ties up there. It can't be poled in under a
+dock: it bumps off the piles.
 
 | Pole | How | Jab |
 |---|---|---|
@@ -73,17 +76,23 @@ riskier than day.
 
 ## The rocky islands
 
-Five rocky islands stand far out in the open water, 530 to 600 m from where
-you start. No water predator comes within 25 m of an island's shelf, so the
+Five rocky islands stand far out in the open water, 600 to 740 m from where
+you start (about 140 to 280 m out past the edge of the marsh). No water predator comes within 25 m of an island's shelf, so the
 island and the water round it are safe. On them you find:
 
 - **Copper outcrops**: humps of rock streaked green. A copper hammer breaks
   out 3 to 5 lumps of **Copper Ore**; then it takes days before more is
   worth breaking loose.
-- **Anvil stones**: flat basalt slabs, too heavy for the bag. Carry one in
-  your arms (and home on the raft) and set it down where you want an anvil.
+- **Anvil stones**: lumpy basalt boulders, too heavy for the bag. Carry one
+  in your arms (and home on the raft) and set it down where you want an
+  anvil, then shape it (see *Shaping an anvil*). Peck it flat first and it
+  is lighter to carry home.
 - **Native copper** in the gravel along their shores: lumps of rock threaded
-  with bright copper, washed up with the stones.
+  with bright copper, washed up with the stones. Every island always has
+  some: four lumps wash up at its waterline when you come near, and lie
+  there for one to three days. Those you pick up are replaced only once the
+  rest wash away and a fresh batch comes in.
+- The **copper hammer** is a short-handled tool with a square cast head.
 
 ## Copper
 
@@ -139,10 +148,27 @@ copper and a charcoal and blow until it is cast:
 | Hook | 1 | 3 copper fishhooks |
 | Beads | 1 | A string of copper beads (a trophy) |
 
+### Shaping an anvil
+
+An anvil stone starts as a rough boulder. Kneel at it (C) and work it in
+three stages, each where it lies:
+
+1. **Peck the face flat** with a river stone: click the lumps on its face
+   to knock them down a level at a time until it is flat. A blow on stone
+   that is already flat is only a wasted blow, and you can stop and come
+   back later. That makes a **rough anvil**, 12 kg lighter. Smashing native
+   copper, crushing ore and crushing stone go quicker on it.
+2. **Grind the face smooth** with 2 **Stone Grit** (two river stones crushed
+   together give 2 grit and you keep one stone), a pot of water and a river
+   stone. You get the pot back empty. That makes a **dressed anvil**, where
+   castings, bars and iron can be worked.
+3. **Peck a whetstone seat** into its corner with a river stone. Then a
+   whetstone can be seated in it.
+
 ### The anvil and the whetstone
 
 A **Whetstone** is two river stones ground together with a pot of water (you
-keep one stone). Hold it and press E at an anvil stone to seat it in the
+keep one stone). Hold it and press E at a finished anvil to seat it in the
 anvil's corner (E again takes it back). Then kneel at the anvil (C) to grind
 rough castings sharp, grind a copper bar into a chisel or a pole shoe, and
 sharpen blunt metal tools. Haft a sharp head by hand with a stick and
@@ -220,11 +246,17 @@ their own slots.
 
 **Meteorites fall in meteor showers.** About half of all showers, and always
 the first after you have cast copper, bring one down on dry land 60 to 300 m
-away. If you are awake you see the fireball streak that way, then hear the
-boom. From day 10 there are daytime meteor showers too: fireballs streaking
-across the sky, trailing smoke.
+away, never within 60 m of anything you have built or set down. If you are
+awake you see the fireball streak that way and are told how far off it hit
+and in which direction; a few seconds later the impact slams through the
+ground and shakes you. From day 10 there are daytime meteor showers too:
+fireballs streaking across the sky, trailing smoke. Those burn up high with
+a distant double boom; one that comes down hits far harder, shakes the ground
+under you and leaves a column of smoke.
 
-The meteorite lies half buried in a scorched, smoking crater. Three mattock
+A tall column of dark smoke rises from where it landed, high over the trees,
+thinning away over the next day: walk towards it. The meteorite lies half
+buried in a scorched, smoking crater. Three mattock
 swings dig it out. Carry it home (on the raft if need be), or kneel at it
 with a copper chisel and a copper hammer to chip lumps of **Meteoric Iron**
 off it (an iron chisel is twice as fast). Chipping wears it down until it is

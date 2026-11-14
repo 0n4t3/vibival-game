@@ -78,7 +78,7 @@ var _bolt_t := 0.0
 var _meteor_t := 0.0
 var _meteors := []      # [{a, b, t, life, fire}]: a fireball is bigger and slower, with a smoke trail
 var _fireball_t := 0.0
-var _boom := []         # [seconds until heard, volume]
+var _boom := []         # [seconds until heard, volume, sound, camera shake]
 var _radiant := 0.0     # azimuth the meteors come from
 var _bolt := PackedVector3Array()
 var _bolt_life := 0.0
@@ -374,15 +374,21 @@ func _fall(asleep: bool) -> void:
 	var cam := _camera_pos()
 	var d := Vector2(at.x - cam.x, at.z - cam.z).length()
 	if asleep:
-		Game.notify("In your sleep you heard a great boom from the %s." % compass(at - cam))
+		Game.notify("In your sleep you heard a great boom, %s to the %s. Look for smoke." % [how_far(d), compass(at - cam)])
 		return
 	# The streak, from high behind you down to the horizon where it fell.
 	var to := Vector3(at.x - cam.x, 0, at.z - cam.z).normalized()
 	var from := (-to * 0.4 + Vector3.UP).normalized()
 	_meteors.append({"a": from, "b": (to + Vector3.UP * 0.02).normalized(), "t": 0.0, "life": 2.5, "fire": true})
 	flash = maxf(flash, 0.35)
-	_boom.append([clampf(d / 343.0, 0.3, 5.0) + 2.5, lerpf(6.0, -4.0, clampf(d / 300.0, 0.0, 1.0))])
-	Game.notify("A fireball tears down out of the sky to the %s!" % compass(at - cam))
+	# The impact, heard (and felt) once the sound has come that far.
+	var near := clampf(d / 300.0, 0.0, 1.0)
+	_boom.append([clampf(d / 343.0, 0.3, 5.0) + 2.5, lerpf(8.0, 0.0, near), "impact", lerpf(0.7, 0.25, near)])
+	Game.notify("A fireball tears down out of the sky and hits the ground %s to the %s! Watch for its smoke." % [how_far(d), compass(at - cam)])
+
+
+static func how_far(d: float) -> String:
+	return "not far off" if d < 120.0 else ("some way off" if d < 220.0 else "far off")
 
 
 static func compass(v: Vector3) -> String:
@@ -396,7 +402,9 @@ func _update_meteors(delta: float) -> void:
 	for b in _boom.duplicate():
 		b[0] -= delta
 		if b[0] <= 0.0:
-			Sfx.play("thunder", b[1], 0.3)
+			Sfx.play(b[2], b[1], 0.15 if b[2] == "impact" else 0.3)
+			if b[3] > 0.0 and swamp and swamp.get("player") and swamp.player.has_method("shake"):
+				swamp.player.shake(b[3])
 			_boom.erase(b)
 	if kind == "day_meteors" and fade > 0.3:
 		# A few big fireballs by day, every few tens of seconds.
@@ -409,7 +417,10 @@ func _update_meteors(delta: float) -> void:
 			var az2 := az + _rng.randf_range(-0.6, 0.6)
 			var b := Vector3(cos(az2) * 0.95, _rng.randf_range(0.05, 0.25), sin(az2) * 0.95).normalized()
 			_meteors.append({"a": a, "b": b, "t": 0.0, "life": _rng.randf_range(FIREBALL_LIFE[0], FIREBALL_LIFE[1]), "fire": true})
-			_boom.append([_rng.randf_range(4.0, 9.0), _rng.randf_range(-14.0, -6.0)])
+			# A distant double boom as it passes over and burns up high. A
+			# real fall (_fall) is a louder ground-shaking impact that you
+			# feel, and leaves a smoke column, so the two can't be confused.
+			_boom.append([_rng.randf_range(4.0, 9.0), _rng.randf_range(-12.0, -6.0), "sonic", 0.0])
 	if kind == "meteors" and _night() > 0.3:
 		_meteor_t -= delta
 		if _meteor_t <= 0.0:

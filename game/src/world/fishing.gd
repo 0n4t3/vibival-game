@@ -298,15 +298,15 @@ func _fight(delta: float) -> void:
 	var f: Vector3 = fish.global_position
 	var water: float = world.water_level()
 	var away := _flat_to_player(f).normalized()
-	if world.ground_height(f.x, f.z) < water - 0.05:
+	if world.ground_height(f.x, f.z) < water - 0.05 and deck_top(f) == -INF:
 		# In the water it swims away from you, weaving, and takes line out.
 		state = "hooked"
 		player.rod_tug = maxf(player.rod_tug, 0.45)
 		_wobble += delta * 0.8
 		var dir := (away + away.cross(Vector3.UP) * sin(_wobble) * 0.8).normalized()
 		var to: Vector3 = f + dir * float(fish.def.speed) * delta
-		if world.ground_height(to.x, to.z) < water - 0.15:
-			f = to
+		if world.ground_height(to.x, to.z) < water - 0.15 and deck_top(to) == -INF:
+			f = to  # (never in under a dock or a raft)
 		fish.heading = atan2(dir.x, dir.z)
 		fish.rotation.y = fish.heading + PI
 		line_len += float(fish.def.fish.pull) * delta
@@ -333,11 +333,25 @@ func _fight(delta: float) -> void:
 	if flat.length() > line_len:
 		f = Vector3(p.x, 0, p.z) + flat.normalized() * line_len
 	var g: float = world.ground_height(f.x, f.z)
-	f.y = water - 0.12 if g < water - 0.05 else (world.floor_height(Vector3(f.x, g, f.z)) if world.has_method("floor_height") else g)
+	var deck := deck_top(f)
+	if deck > -INF:
+		f.y = deck  # reeled in at a dock or raft: hauled up onto its deck
+	else:
+		f.y = water - 0.12 if g < water - 0.05 else (world.floor_height(Vector3(f.x, g, f.z)) if world.has_method("floor_height") else g)
 	fish.global_position = f
 	if state == "landed" and _flat_to_player(f).length() <= AT_FEET and not _told_strike:
 		_told_strike = true
 		Game.notify("The %s flops at your feet. Strike it with a weapon (%s)." % [fish.def.name, Settings.button_name("attack")])
+
+
+func deck_top(at: Vector3) -> float:
+	## The deck of a finished dock or raft over the water at `at`, or -INF: a
+	## fish reeled in to one is hauled up onto it rather than left under it.
+	var top := -INF
+	for d in Game.docks + Game.rafts:
+		if is_instance_valid(d):
+			top = maxf(top, d.floor_top(Vector3(at.x, d.global_position.y, at.z)))
+	return top if top > world.water_level() else -INF
 
 
 func _got_away() -> void:

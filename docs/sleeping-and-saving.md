@@ -19,6 +19,9 @@ little.
 | Sleeping near water: insect bites and leeches | Tree cover (trunks and boulders around you) |
 | Rain: chills, and floods on low ground that wash away loose items | |
 
+Inside a finished house (or out on its porch) nothing attacks, bites or
+clings to you in the night, whatever the weather or the water nearby.
+
 If something attacks during the night, you wake partway through it. Fight it
 off or get away, and survive 30 seconds.
 

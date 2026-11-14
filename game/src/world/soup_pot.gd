@@ -288,9 +288,11 @@ static func food_values(id: String) -> Dictionary:
 
 
 static func accepts(id: String) -> bool:
-	## Any food can go in the soup, but not water or soup in a pot.
+	## Any food can go in the soup, but nothing that comes in a container:
+	## not water or soup in a pot, canteen or flask (`empty`), nor a canteen
+	## or flask of alcohol (`measures`), which would go in whole.
 	var def := Items.def(id)
-	return id != "" and Items.is_food(id) and not def.has("empty")
+	return id != "" and Items.is_food(id) and not def.has("empty") and not def.has("measures")
 
 
 func add_food(id: String) -> String:

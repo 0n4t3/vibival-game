@@ -35,6 +35,9 @@ var _make_title: Label
 var _hover := -1
 var _drag := false
 var _side: PanelContainer
+var _col: VBoxContainer          # the whole layout, top to bottom
+var _info_row: Control
+var _bottom_row: Control
 var _top: PanelContainer
 var _hover_how := ""
 var _done: Button
@@ -78,6 +81,8 @@ func _ready() -> void:
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_theme_constant_override("separation", 8)
 	margin.add_child(col)
+	_col = col
+	col.resized.connect(_fit_make)
 
 	var mid := HBoxContainer.new()
 	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -109,6 +114,7 @@ func _ready() -> void:
 	var info_row := CenterContainer.new()
 	info_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(info_row)
+	_info_row = info_row
 	var top := _panel()
 	info_row.add_child(top)
 	_top = top
@@ -116,7 +122,11 @@ func _ready() -> void:
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info.custom_minimum_size = Vector2(620, 0)
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_info.add_theme_font_size_override("font_size", 15)
+	# As tall as the longest recipe's "how" from the start, so hovering a
+	# recipe never grows it and pushes the Make panel up.
+	_info.custom_minimum_size.y = info_height(_info.get_theme_font("font"), 15, _info.get_theme_constant("line_spacing"))
 	var tb := VBoxContainer.new()
 	top.add_child(tb)
 	tb.add_child(_info)
@@ -140,6 +150,7 @@ func _ready() -> void:
 	var bottom_row := CenterContainer.new()
 	bottom_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(bottom_row)
+	_bottom_row = bottom_row
 	var bottom := _panel()
 	bottom_row.add_child(bottom)
 	var bb := VBoxContainer.new()
@@ -510,6 +521,17 @@ func _ranked(opts: Array) -> Array:
 	return keyed.map(func(k): return k[2])
 
 
+static func info_height(font: Font, font_size: int, spacing: int) -> float:
+	## The height the instructions need to show any recipe's "how" whole: as
+	## many lines as the longest wraps to, with the label's line spacing.
+	var line := font.get_height(font_size)
+	var lines := 1
+	for r in Items.RECIPES:
+		var h := font.get_multiline_string_size(Settings.hint(r.get("how", "")), HORIZONTAL_ALIGNMENT_CENTER, 620, font_size).y
+		lines = maxi(lines, roundi(h / line))
+	return ceilf(lines * line + (lines - 1) * spacing)
+
+
 func _show_how(how: String) -> void:
 	_hover_how = how
 	if spot and spot.recipe.is_empty():
@@ -517,6 +539,18 @@ func _show_how(how: String) -> void:
 
 
 func _fit_make() -> void:
-	## Grows the list with its contents up to MAX_LIST px, then scrolls.
+	## Grows the list with its contents up to MAX_LIST px, or the room left
+	## on screen above the instructions and your things, then scrolls: a
+	## long list never pushes your things off the bottom.
 	if _make_scroll:
-		_make_scroll.custom_minimum_size.y = minf(_make.get_combined_minimum_size().y, MAX_LIST)
+		_make_scroll.custom_minimum_size.y = minf(_make.get_combined_minimum_size().y, list_room())
+
+
+func list_room() -> float:
+	## How tall the Make list may be.
+	if _col == null or _col.size.y <= 0.0:
+		return MAX_LIST
+	var sep := float(_col.get_theme_constant("separation"))
+	var mid := _col.size.y - _info_row.get_combined_minimum_size().y - _bottom_row.get_combined_minimum_size().y - sep * 2.0
+	var around := _side.get_combined_minimum_size().y - _make_scroll.custom_minimum_size.y
+	return clampf(mid - around, 80.0, MAX_LIST)

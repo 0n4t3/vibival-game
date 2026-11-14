@@ -12,13 +12,14 @@ extends Node
 ## --spawn-dist=M, --spawn-heading=DEG, --spawn-dead (as carcasses: --stage=gutted|skinned,
 ## --haul picks up the first, --butcher kneels at it, with --work-steps)),
 ## --wound, --condition=id,... (health conditions, see Survival.DEBUG_CONDITIONS),
-## --open-inventory[=health|recipes], --open-pause, --open-debug (with --debug), --tired (able to sleep at once),
+## --open-inventory[=health|recipes], --open-pause, --open-debug (with --debug), --open-map, --chart=METRES (charted round you), --tired (able to sleep at once),
+## --raft (with a finished --dock: board its raft holding a pole), --raft-pole (and pole it ahead),
 ## --work=item:n,... (kneel to craft with these laid out), --work-make=item,
 ## --work-steps=N, --spawn-felled=tree_kind, --spawn-log=log,short_log,..., --stack=item:n,...
 ## (lay wood or piles out in front of you; --carry picks up the first log,
 ## --woodwork=fell|buck|strip|shorten|hew|split kneels at the first piece and begins it),
 ## --bench=tool,tool puts a workbench in front of you with those tools on its rack
-## (--at-bench works at it, and --make=item lays out what that recipe needs and begins it),
+## (--at-bench works at it, --lay=item:n,... lays those out on it, and --make=item lays out what that recipe needs and begins it),
 ## --vessel[=open|sealed|brew|salt|pickled] puts a fermentation vessel in front
 ## of you (empty, or with a brew, salted food or pickles in it),
 ## --soup-pot[=soup|water|empty|unfired] hangs a soup pot (of boiling soup by
@@ -31,6 +32,8 @@ extends Node
 ## --start=lab, the elevator opening, elevator_intro.gd),
 ## --music (start a music track at once), --weather=fog|aurora|bright_moon|meteors|
 ## thunderstorm|wind|smoke (start that event, already at full strength),
+## --crater=METRES (a fresh meteorite crater that far ahead), --meteor-fall=S
+## (a daytime meteor shower that brings a meteorite down after S seconds),
 ## --only=group,... (tests: run only those groups), --load-worlds (the title
 ## opens on Load world).
 
@@ -40,6 +43,7 @@ signal crafted(id: String)
 
 const Inventory := preload("res://src/core/inventory.gd")
 const Survival := preload("res://src/core/survival.gd")
+const Chart := preload("res://src/core/chart.gd")
 const SAVE_VERSION := 1
 var old_save_path := "user://save.json"  # the single save from before named worlds
 var worlds_dir := "user://worlds"    # one folder per world; tests point this elsewhere
@@ -76,6 +80,8 @@ var taken := {}       # uid -> true for picked-up world items
 var harvested := {}   # uid -> game time when it regrows
 var felled := {}      # tree uid -> {at, regrow, kind, cleared?} (see chunk.gd)
 var plantings := {}   # uid -> a hole dug for planting, or what grows from it (see plot.gd)
+var chart := PackedByteArray()  # the world's charted map, a cell per byte (core/chart.gd)
+var map_marks: Array = []       # markers on the map: [{x, z}]
 var hints_seen := {}
 var tiers: Array = ["hand"]     # crafting tiers unlocked (workbenches built)
 var tools_known: Array = []     # workbench rack tools you have made or held: their recipes are in the book
@@ -150,6 +156,8 @@ func start_new_game(tutorial: bool) -> void:
 	tiers = ["hand"]
 	tools_known = []
 	copper_cast = false
+	chart = PackedByteArray()
+	map_marks = []
 	restore = {}
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(suspend_path()))
 	time = 0.0
@@ -462,6 +470,7 @@ func save_game(world_state: Dictionary, suspended := false) -> bool:
 		"copper_cast": copper_cast,
 		"inventory": inventory.to_dict(),
 	}
+	data.merge(Chart.to_save())
 	data.merge(world_state)
 	var path := suspend_path() if suspended else save_path
 	var tmp := path + ".tmp"
@@ -540,6 +549,7 @@ func apply_save(data: Dictionary) -> void:
 	hints_seen = data.hints
 	tiers = data.get("tiers", ["hand"])
 	copper_cast = bool(data.get("copper_cast", false))
+	Chart.from_save(data)
 	inventory = Inventory.new()
 	inventory.from_dict(data.inventory)
 	tools_known = []
@@ -639,6 +649,15 @@ func dock_safe(pos: Vector3) -> bool:
 		if is_instance_valid(d) and d.guards(pos):
 			return true
 	return false
+
+
+func dock_keeps_out(pos: Vector3) -> Node3D:
+	## The finished dock whose water and bank the water predators keep out
+	## of at pos (dock.gd keeps_out), or null.
+	for d in docks:
+		if is_instance_valid(d) and d.keeps_out(pos):
+			return d
+	return null
 
 
 func island_safe(pos: Vector3) -> bool:

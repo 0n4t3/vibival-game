@@ -13,9 +13,10 @@ extends Node
 ## Music has its own audio bus, so its volume can be set apart from the master
 ## volume.
 ##
-## Each scene sets its own start (Game.goto calls enter()): the title waits a
-## while before any music, the tutorial lab has none, and a new world opens
-## with Empty Basin before the random choice takes over.
+## Each scene sets its own start (Game.goto calls enter()): the title opens
+## with Dusk after a short wait and then keeps playing (Constant gaps, however
+## rare music is set, unless it is Off), the tutorial lab has none, and a new
+## world opens with Empty Basin before the random choice takes over.
 ##
 ## Tracks are the .mp3 and .ogg files in res://music, loaded at runtime (the
 ## project has no imported assets).
@@ -33,7 +34,8 @@ const GAPS := [[4.0, 12.0], [0.7, 1.3], [3.0, 5.0]]
 const MAX_SHARE := [1.0, 0.6, 0.3]
 ## The first track after loading a world waits only part of a gap.
 const FIRST_GAP := 0.25
-const TITLE_WAIT := 30.0     # seconds on the title screen before any music
+const TITLE_WAIT := 20.0     # seconds on the title screen before any music
+const TITLE_FIRST := "res://music/dusk.mp3"   # the title's first track
 const OPENING := "res://music/empty-basin.mp3"
 const OPENING_WAIT := 30.0   # into a new world (Common or Rare)
 ## The tutorial's elevator ride down to the lab (lab.gd) has its own music,
@@ -120,6 +122,7 @@ func enter(scene_name: String, fresh := false) -> void:
 	if f == Settings.MusicFrequency.OFF or scene == "lab":
 		wait = INF
 	elif scene == "title":
+		queued = TITLE_FIRST
 		wait = TITLE_WAIT
 	elif fresh and f != Settings.MusicFrequency.CONSTANT:
 		queued = OPENING
@@ -160,6 +163,8 @@ func next_gap() -> float:
 	var f: int = Settings.music_frequency
 	if f >= GAPS.size():
 		return INF
+	if scene == "title":
+		f = Settings.MusicFrequency.CONSTANT  # the title keeps playing
 	var k := _rng.randf_range(GAPS[f][0], GAPS[f][1])
 	return k if f == Settings.MusicFrequency.CONSTANT else k * track_length()
 
@@ -189,7 +194,7 @@ func quiet_until() -> float:
 	## The earliest _clock the next track may start: after the last one and
 	## enough quiet that it was no more than MAX_SHARE of the time.
 	var f: int = Settings.music_frequency
-	if f >= MAX_SHARE.size() or _started_at == -INF:
+	if f >= MAX_SHARE.size() or _started_at == -INF or scene == "title":
 		return _started_at + _started_len
 	return _started_at + _started_len / MAX_SHARE[f]
 
@@ -267,6 +272,8 @@ func _on_settings() -> void:
 	elif scene == "lab":
 		wait = INF
 	elif not _player.playing:
+		if scene == "title" and current == "":
+			queued = TITLE_FIRST  # music turned back on before anything played
 		# Don't make the player sit out a long gap picked for a rarer setting
 		# (though the title screen still stays quiet for a while).
 		wait = minf(wait, maxf(next_gap(), TITLE_WAIT if scene == "title" else 0.0))

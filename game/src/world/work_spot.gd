@@ -6,6 +6,7 @@ extends Node3D
 ##   twist  hold the left button and roll the work back and forth (cordage, torches)
 ##   steps  click the glowing marker once per step (lashing, coiling, weaving)
 ##   knap   strike cells off a 5x5 chert slab resting on a flat stone anvil
+##   peck   knock the high spots off a rough anvil boulder's face (heavy_stone.gd)
 ##
 ## At a workbench (`bench`, see workbench.gd) the spot lies on its top instead
 ## of the ground, and "bench" tier recipes can be made there as well as
@@ -35,6 +36,7 @@ extends Node3D
 
 const MeshBuilder := preload("res://src/core/mesh_builder.gd")
 const Chunk := preload("res://src/world/chunk.gd")
+const Preserves := preload("res://src/core/preserves.gd")
 
 const PICK_PX := 44.0
 const KNAP_CELL := 0.06
@@ -44,7 +46,7 @@ const STEEL := Color(0.75, 0.77, 0.80)
 const COPPER := Color(0.80, 0.45, 0.20)
 const FIBER := Color(0.55, 0.65, 0.30)
 const BUILD_AT := Vector3(0, 0, -0.9)  # where a workbench goes up, from the spot
-const ZOOM := {"ash_pencil": 2.5, "pencil_core_unfired": 2.0, "blueprint_softwood_house": 1.3, "spindle_whorl_unfired": 2.5, "spindle": 1.5}  # small work shown bigger, to see what you do
+const ZOOM := {"ash_pencil": 2.5, "pencil_core_unfired": 2.0, "blueprint_softwood_house": 1.3, "chart_map": 1.3, "spindle_whorl_unfired": 2.5, "spindle": 1.5}  # small work shown bigger, to see what you do
 const FISH_TRAP_SIZE := 0.55  # a fish trap being made at a bench, shown smaller
 const BLUEPRINT_AT := Vector3(0, 0, -0.19)  # where the sheet lies, the pencil in front of it
 
@@ -71,12 +73,13 @@ var house_log: Node3D = null   # the log carried there for its next stilt (hidde
 var trap: Node3D = null        # a fish trap or snare being baited
 var plot: Node3D = null        # a dug hole something is being planted in
 var station: Node3D = null     # a furnace, anvil or meteorite knelt at (metals.md)
-var station_kind := ""         # "furnace", "anvil", "meteorite", or "water" (looking at the water)
+var station_kind := ""         # "furnace", "anvil", "boulder" (an anvil stone still rough), "meteorite", or "water" (looking at the water)
 
 var _piles: Array = []         # pile nodes
 var _work: MeshInstance3D
 var _marker: MeshInstance3D
 var _hammer: MeshInstance3D
+var _hammer_at := Vector3.ZERO  # where the striker comes down, from WORK (its face on the work)
 var _rng := RandomNumberGenerator.new()
 var _shown := -1.0             # twist progress the workpiece was built for
 var _roll := 0.0               # twist: how far the work has been rolled (radians)
@@ -85,6 +88,7 @@ var _thump := 0.0              # animation after each step
 var _t := 0.0
 var _marker_size := 1.0
 var _cold_step := false        # the last blow left the furnace short of melting heat
+var _wasted := false           # the last peck fell on flat stone
 
 
 static func piles_layout() -> Array:
@@ -162,7 +166,7 @@ func _process(delta: float) -> void:
 		var size := clampf(to.length() * 1.1, 2.5, 6.0) * (1.0 + 0.2 * sin(_t * 6.0))
 		_marker.global_basis = Basis(x, y, x.cross(y)).scaled(Vector3.ONE * size)
 	if _hammer.visible:
-		_hammer.position = WORK + Vector3(0.02, _floor(WORK) + 0.03 + 0.14 * (1.0 - _thump), 0)
+		_hammer.position = WORK + _hammer_at + Vector3(0.02, _floor(WORK) + 0.03 + 0.14 * (1.0 - _thump), 0)
 
 
 # --- Laying out ---------------------------------------------------------------------
@@ -177,7 +181,8 @@ func lay(i: int, n := 1) -> int:
 	var s = Game.inventory.slots[i]
 	if s == null:
 		return 0
-	if s.has("data"):
+	var keep: bool = s.has("data") and Items.def(s.id).get("preserves", false)
+	if s.has("data") and not keep:
 		if s.data.has("bait"):
 			Game.notify("This rod is already baited.")
 		else:
@@ -188,7 +193,8 @@ func lay(i: int, n := 1) -> int:
 		Game.notify("There's no room to lay out more here.")
 		return 0
 	var took: Dictionary = Game.inventory.take(i, mini(n, s.n))
-	_add_pile(took.id, took.n, took.age)
+	# A preserving pot keeps what is in it (its own pile, never merged).
+	_add_pile(took.id, took.n, took.age, s.data if keep else {})
 	Sfx.play("pickup", -10.0)
 	_rebuild_piles()
 	changed.emit()
@@ -201,7 +207,7 @@ func take_back(p: int, n := 1) -> void:
 		return
 	var pile: Dictionary = piles[p]
 	var k: int = mini(n, pile.n)
-	_give(pile.id, k, pile.age)
+	_give(pile.id, k, pile.age, pile.get("data", {}))
 	pile.n -= k
 	if pile.n <= 0:
 		piles.remove_at(p)
@@ -221,7 +227,7 @@ func return_all() -> void:
 			player.hauling = house_log
 		house_log = null
 	for pile in piles:
-		_give(pile.id, pile.n, pile.age)
+		_give(pile.id, pile.n, pile.age, pile.get("data", {}))
 	piles.clear()
 	_rebuild_piles()
 	changed.emit()
@@ -237,13 +243,20 @@ func laid(id: String) -> int:
 
 
 func _pile_of(id: String) -> int:
+	## The pile of `id` more can go on (never one with its own data).
 	for p in piles.size():
-		if piles[p].id == id:
+		if piles[p].id == id and not piles[p].has("data"):
 			return p
 	return -1
 
 
-func _add_pile(id: String, n: int, age: float) -> void:
+func _add_pile(id: String, n: int, age: float, data := {}) -> void:
+	if not data.is_empty():
+		if piles.size() >= piles_layout().size():
+			_give(id, n, age, data)
+		else:
+			piles.append({"id": id, "n": n, "age": age, "data": data})
+		return
 	var p := _pile_of(id)
 	if p < 0:
 		if piles.size() >= piles_layout().size():
@@ -267,17 +280,20 @@ func _take_pile(id: String, n: int) -> Array:
 		var k: int = mini(n, pile.n)
 		pile.n -= k
 		n -= k
-		out.append({"id": pile.id, "n": k, "age": pile.age})
+		var u := {"id": pile.id, "n": k, "age": pile.age}
+		if pile.has("data"):
+			u.data = pile.data
+		out.append(u)
 		if pile.n <= 0:
 			piles.erase(pile)
 	return out
 
 
-func _give(id: String, n: int, age: float) -> void:
+func _give(id: String, n: int, age: float, data := {}) -> void:
 	## Into the inventory, or onto the ground if every slot is taken.
-	var left: int = Game.inventory.add(id, n, age, true)
+	var left: int = Game.inventory.add(id, n, age, true, data)
 	if left > 0 and player and player.world:
-		player.world.spawn_pickup(id, left, to_global(Vector3(0, 0.2, 0.3)), age)
+		player.world.spawn_pickup(id, left, to_global(Vector3(0, 0.2, 0.3)), age, true, data)
 
 
 # --- What can be made ----------------------------------------------------------------
@@ -319,6 +335,9 @@ func station_options() -> Array:
 		return out
 	if station == null or not is_instance_valid(station) or station.is_queued_for_deletion():
 		return out
+	var shape := shape_option()
+	if not shape.is_empty():
+		out.append({"recipe": shape, "missing": missing_for(shape)})
 	for r in Items.recipes_for(where, ["metal"]):
 		if r.get("at", "") == station_kind and (r.in.is_empty() or r.in.keys().any(func(id): return laid(id) > 0)):
 			out.append({"recipe": r, "missing": missing_for(r)})
@@ -338,6 +357,27 @@ func station_options() -> Array:
 					"how": "Click to draw the edge along the wet whetstone, again and again, then hone it fine."}
 			out.append({"recipe": r, "missing": missing_for(r)})
 	return out
+
+
+func shape_option() -> Dictionary:
+	## The next stage of shaping the anvil stone knelt at (heavy_stone.gd), or {}.
+	if station == null or not station.has_method("advance") or station.stage >= station.SEATED:
+		return {}
+	var r := {"shape_anvil": station.stage, "out": "anvil_stone", "n": 1, "in": {}, "tools": {"stone": 1}, "at": station_kind, "cat": "Metal"}
+	match station.stage:
+		station.ROUGH:
+			r.merge({"act": "peck", "verb": "Peck the face flat",
+					"label": "A rough anvil, lighter to carry (%d high spots to knock off)" % station.high_spots(),
+					"how": "Strike the high spots off the boulder's face with a river stone until it is flat."}, true)
+		station.PECKED:
+			r.merge({"in": {"stone_grit": 2, "pot_dirty": 1}, "act": "steps", "steps": 10, "verb": "Grind the face smooth",
+					"label": "A dressed anvil, to work castings, bars and iron on (the pot comes back empty)",
+					"how": "Click to rub the grit round the face with a river stone, wetting it as you go."}, true)
+		station.GROUND:
+			r.merge({"act": "steps", "steps": 6, "verb": "Peck a whetstone seat",
+					"label": "A seat cut into the anvil's corner, to hold a whetstone",
+					"how": "Click to peck a shallow seat into the anvil's corner."}, true)
+	return r
 
 
 func _station_ok() -> bool:
@@ -495,8 +535,11 @@ func missing_for(r: Dictionary) -> Array:
 			missing.append("the %s, where it stands" % r.at)
 		elif r.at == "furnace" and not station.complete():
 			missing.append("a finished furnace (it still needs: %s)" % station.next_part().verb.to_lower())
-	if r.get("whetstone", false) and station_kind == "anvil" and _station_ok() and not station.whetstone:
-		missing.append("a whetstone seated in the anvil's corner (hold one and press E at the anvil)")
+	var shaped: int = int(station.get("stage")) if r.get("at", "") == "anvil" and _station_ok() and station.has_method("advance") else 3
+	if r.get("at", "") == "anvil" and not r.has("shape_anvil") and station_kind == "anvil" and shaped < 2:
+		missing.append("a dressed anvil (kneel at it to grind its face smooth)")
+	elif r.get("whetstone", false) and station_kind == "anvil" and _station_ok() and not station.whetstone:
+		missing.append("a whetstone seated in the anvil's corner (%s)" % ("peck a seat into the anvil, then hold one and press E at it" if shaped < 3 else "hold one and press E at the anvil"))
 	if r.has("wear") and laid(r.wear) + Game.inventory.count(r.wear) > 0 and _uses_of(r.wear) < r.sharpen.size():
 		missing.append("a %s with %d uses left" % [Items.item_name(r.wear), r.sharpen.size()])
 	if r.get("tier", "hand") == "bench" and bench == null:
@@ -758,7 +801,7 @@ func cancel() -> void:
 		Game.notify("You discard the half-worked stone.")
 	else:
 		for u in used:
-			_add_pile(u.id, u.n, u.age)
+			_add_pile(u.id, u.n, u.age, u.get("data", {}))
 	used.clear()
 	recipe = {}
 	_rebuild_piles()
@@ -841,6 +884,27 @@ func _finish_sharpen(r: Dictionary) -> void:
 	finished.emit(r.sharpen_tool)
 
 
+func _finish_shape(_r: Dictionary) -> void:
+	## A stage of shaping the anvil stone done: the next one comes up.
+	for u in used:
+		var empty: String = Items.def(u.id).get("empty", "")
+		if empty != "":
+			_give(empty, u.n, 0.0)
+	used.clear()
+	recipe = {}
+	if _station_ok():
+		station.advance()
+		station_kind = station.station_kind()
+		Game.notify(["", "The boulder's face is pecked flat: a rough anvil, and lighter to carry. Grind it smooth with stone grit and a pot of water to work metal on it.",
+				"The anvil's face is ground smooth: castings, bars and iron can be worked on it. Peck a seat into its corner for a whetstone.",
+				"The seat is cut. Hold a whetstone and press E at the anvil to seat it."][station.stage])
+	Sfx.play("craft", -4.0)
+	Game.crafted.emit("anvil_shaped")
+	_rebuild_work()
+	changed.emit()
+	finished.emit("anvil_stone")
+
+
 func _finish(out := "") -> void:
 	var r := recipe
 	if r.has("build"):
@@ -848,6 +912,9 @@ func _finish(out := "") -> void:
 		return
 	if r.has("sharpen_tool"):
 		_finish_sharpen(r)
+		return
+	if r.has("shape_anvil"):
+		_finish_shape(r)
 		return
 	_use_tools(r)
 	for id in r.get("give", {}):
@@ -873,6 +940,20 @@ func _finish(out := "") -> void:
 		_rebuild_work()
 		changed.emit()
 		finished.emit(rod)
+		return
+	if r.get("seal", false):
+		# A pot of preserves sealed: what was in it goes into the sealed pot.
+		var pots: Array = used.filter(func(u): return u.has("data"))
+		var data: Dictionary = Preserves.sealed_data(pots[0].data) if not pots.is_empty() else {"items": [], "fluid": "", "w": Items.weight("pot")}
+		used.clear()
+		recipe = {}
+		_give(r.out, 1, 0.0, data)
+		Sfx.play("craft", -4.0)
+		Game.crafted.emit(r.out)
+		Game.notify("You seal the pot. Nothing in it will spoil now.")
+		_rebuild_work()
+		changed.emit()
+		finished.emit(r.out)
 		return
 	var id: String = out if out != "" else r.out
 	var n: int = r.n if id == r.out else 1
@@ -1167,7 +1248,8 @@ func _wood_mark(k: int, n: int) -> Vector3:
 func instructions() -> String:
 	if house:
 		if recipe.is_empty():
-			return "Build the next part of the house. Its materials come out of your bag."
+			var what: String = house.site_name().trim_suffix(" site") if house.has_method("site_name") else "house"
+			return "Build the next part of the %s. Its materials come out of your bag." % what
 		return "%s: %s  (%d / %d)" % [recipe.verb, house.step_how(recipe.house, steps), steps, recipe.steps]
 	if recipe.is_empty():
 		if Settings.touch:
@@ -1181,6 +1263,10 @@ func instructions() -> String:
 			if Settings.touch:
 				return "%s: drag your finger back and forth.  %d%%" % [recipe.verb, roundi(progress * 100.0)]
 			return "%s: hold the left mouse button and move the mouse back and forth.  %d%%" % [recipe.verb, roundi(progress * 100.0)]
+		"peck":
+			var left: int = station.high_spots() if _station_ok() else 0
+			return "%s the high spots on the boulder's face to peck them down with the river stone.  %d strikes to go%s" % [
+					"Tap" if Settings.touch else "Click", left, "  (that was flat already)" if _wasted else ""]
 		"knap":
 			return "%s the %s to strike flakes off. Leave only the outlined %s." % ["Tap" if Settings.touch else "Click", _knap_stuff(), Items.item_name(recipe.out).to_lower()]
 	var how: String = recipe.how
@@ -1215,6 +1301,8 @@ func click(screen: Vector2, right := false) -> void:
 			var k := cell_at(screen)
 			if k >= 0:
 				strike(k)
+		"peck":
+			peck_cell(_peck_cell_at(screen))
 
 
 func drag(rel: Vector2) -> void:
@@ -1346,6 +1434,38 @@ func strike(k: int) -> void:
 	changed.emit()
 
 
+func peck_cell(k: int) -> void:
+	## A blow of the river stone on cell k of the boulder's face. A blow on a
+	## flat cell is wasted; once the face is flat it is a rough anvil.
+	if recipe.get("act", "") != "peck" or k < 0 or not _station_ok():
+		return
+	var hit: bool = station.strike_cell(k)
+	_wasted = not hit
+	steps += 1
+	_thump = 1.0
+	Sfx.play("knap" if hit else "hit", -4.0 if hit else -10.0, 0.2)
+	if station.high_spots() == 0:
+		_finish()
+		return
+	_rebuild_work()
+	changed.emit()
+
+
+func _peck_cell_at(screen: Vector2) -> int:
+	## The cell of the boulder's face under the cursor, or -1.
+	if not _station_ok() or not station.has_method("cell_point"):
+		return -1
+	var px := _on_screen(station.cell_point(12)).distance_to(_on_screen(station.cell_point(13)))
+	var best := -1
+	var best_d := INF
+	for k in 25:
+		var d := _on_screen(station.cell_point(k)).distance_to(screen)
+		if d < best_d:
+			best_d = d
+			best = k
+	return best if best_d < maxf(px * 0.75, 12.0) else -1
+
+
 func _knap_stuff() -> String:
 	## What is being knapped, as words: "stone" (chert), or "chitin plate".
 	var m := Items.knap_material(recipe.get("knap", ""))
@@ -1417,8 +1537,13 @@ func view_points() -> Array:
 	for k in range(steps + 1, n):
 		if recipe.has("wood") and wood_on() != "":
 			out.append(_wood_mark(k, n))
+		elif recipe.has("shape_anvil") and _station_ok():
+			out.append(station.shape_mark(k, n))
 		elif recipe.get("act", "") == "steps" and not recipe.has("butcher") and not recipe.has("house") and not recipe.has("trap") and not recipe.has("plot"):
 			out.append(to_global(_work.transform * _target(recipe.out, k)))
+	if recipe.get("act", "") == "peck" and _station_ok():
+		for c in [0, 4, 20, 24]:
+			out.append(station.cell_point(c))
 	if recipe.is_empty():
 		for p in _piles:
 			out.append(p.global_position + Vector3(0, 0.04, 0))
@@ -1445,6 +1570,8 @@ func look_point() -> Vector3:
 		return house.face_point(p) if not p.is_empty() else house.global_position
 	if recipe.get("build", false):
 		return to_global(BUILD_AT + Vector3(0, 0.6, 0))
+	if (recipe.has("shape_anvil") or recipe.is_empty()) and station_kind in ["anvil", "boulder"] and _station_ok() and station.has_method("cell_point"):
+		return station.to_global(Vector3(0, station.ANVIL.y, 0))
 	if not tree.is_empty():
 		return Vector3(tree.at.x, global_position.y + 0.35, tree.at.z)
 	if wood and _wood_ok() and wood.has_method("cut_point"):
@@ -1566,6 +1693,15 @@ func _rebuild_work() -> void:
 	if recipe.is_empty():
 		_work.mesh = null
 		return
+	if recipe.has("shape_anvil"):
+		# Worked on the stone itself: a glowing mark for each step there.
+		_work.mesh = null
+		if recipe.act == "steps" and _station_ok():
+			_marker.visible = true
+			_marker.material_override = _marker_on_top()
+			_marker.global_position = station.shape_mark(steps, Items.recipe_steps(recipe))
+			_marker_size = 1.5
+		return
 	var b := MeshBuilder.new()
 	var k := steps
 	var n := Items.recipe_steps(recipe)
@@ -1616,6 +1752,34 @@ func _rebuild_work() -> void:
 			b.leaf(Vector3(-0.28, 0.012, 0), Vector3(1, 0, 0), 0.56, 0.24 * (1.0 - crush * 0.4), 0.0, 4, Items.def("frond").color.darkened(crush * 0.35))
 			if k > 0:
 				b.blob(Vector3(0.0, 0.016, 0.0), Vector3(0.03 + crush * 0.05, 0.012, 0.025 + crush * 0.04), 2, 7, Items.def("wax").color, _rng, 0.2, "organic")
+			_hammer.mesh = Assets.mesh("item_stone")
+			_hammer.scale = Vector3.ONE * 0.6
+			_hammer_at = Vector3.ZERO
+			_hammer.visible = true
+		"smashed_native_copper", "stone_grit", "crushed_copper_ore":
+			# The lump shrinks as it is beaten, the grit spreading round it
+			# (bright copper threads in native copper's), and the striker
+			# thumps down on each click: a river stone, or a hammer for ore.
+			var crush := k / float(n)
+			var lump: String = recipe.in.keys()[0]
+			var col: Color = Items.def(lump).color
+			var r := 0.08 * (1.0 - crush * 0.7)
+			b.blob(Vector3(0, r * 0.8, 0), Vector3(r, r * 0.8, r * 0.9), 3, 8, col, _rng, 0.25, "solid")
+			for i in k * 6:
+				var a := _rng.randf() * TAU
+				var d := _rng.randf_range(0.05, 0.08 + crush * 0.06)
+				var g := _rng.randf_range(0.006, 0.012)
+				var fleck: bool = recipe.out == "smashed_native_copper" and i % 3 == 0
+				b.blob(Vector3(cos(a) * d, g * 0.5, sin(a) * d), Vector3(g, g * 0.6, g), 2, 5,
+						COPPER.lightened(0.15) if fleck else col.darkened(_rng.randf_range(0.0, 0.2)), _rng, 0.3, "metal" if fleck else "solid")
+			var hammer: bool = recipe.out == "crushed_copper_ore"
+			_hammer.mesh = Assets.mesh("item_stone" if not hammer else
+					("item_iron_hammer" if Game.inventory.count("iron_hammer") > 0 or laid("iron_hammer") > 0 else "item_copper_hammer"))
+			_hammer.scale = Vector3.ONE * (1.0 if hammer else 0.45)
+			# Its face (a hammer's head, at the end of the handle) on top of the lump.
+			var box: AABB = _hammer.mesh.get_aabb()
+			var face := Vector3(box.end.x - 0.03 if hammer else box.get_center().x, box.position.y, box.get_center().z) * _hammer.scale.x
+			_hammer_at = Vector3(-face.x - 0.02, r * 1.6 - face.y - 0.03, -face.z)
 			_hammer.visible = true
 		"spear":
 			Assets.stick(b, _rng, Vector3(-0.75, 0.026, 0), Vector3(0.05, 0.026, 0), 0.022)
@@ -1878,6 +2042,37 @@ func _rebuild_work() -> void:
 					b.cylinder(Vector3(-0.07, 0.014, 0), Vector3(0.07, 0.014, 0), 0.014, 0.014, 8, mix, Color(-1, 0, 0), "clay")
 		"ash_pencil":
 			Assets.pencil(b, _rng, k)
+		"pot_sealed":
+			# The open pot of preserves; the cap pressed into its mouth, then
+			# the wax worked round the rim, half and then all the way.
+			Assets.pot(b, Assets.FIRED, 1.0)
+			b.lathe([Vector2(0.075, 0.17), Vector2(0.0, 0.17)], 10, Items.def("pot_preserves").color, "solid", Vector3.ZERO, false)
+			var cap := Vector3.ZERO if k >= 1 else Vector3(0.24, -0.196, 0.04)
+			b.cylinder(cap + Vector3(0, 0.196, 0), cap + Vector3(0, 0.212, 0), 0.08, 0.074, 10, Assets.CANTEEN_WOOD, Assets.CANTEEN_WOOD * 0.9, "wood")
+			b.cylinder(cap + Vector3(0, 0.212, 0), cap + Vector3(0, 0.228, 0), 0.016, 0.013, 7, Assets.CANTEEN_WOOD * 0.92, Color(-1, 0, 0), "wood")
+			var wax: Color = Items.def("wax").color
+			if k >= 2:
+				b.cylinder(Vector3(0, 0.183, 0), Vector3(0, 0.196, 0), 0.086, 0.086, 10, wax, Color(-1, 0, 0), "solid")
+			else:
+				b.blob(Vector3(-0.22, 0.02, 0.06), Vector3(0.04, 0.02, 0.035), 2, 6, wax, _rng, 0.2, "solid")
+		"chart_map":
+			# The pencil sharpened, then a border ruled round the sheet (two
+			# sides at a time) and a compass rose in its corner.
+			Assets.paper(b, _rng, Items.def("paper_sheet").color, BLUEPRINT_AT, 1.0, 0.85)
+			var sides := [[Vector2(-0.2, -0.14), Vector2(0.2, -0.14)], [Vector2(0.2, -0.14), Vector2(0.2, 0.14)],
+					[Vector2(0.2, 0.14), Vector2(-0.2, 0.14)], [Vector2(-0.2, 0.14), Vector2(-0.2, -0.14)]]
+			for j in mini(maxi(k - 1, 0) * 2, 4):
+				Assets.line_on(b, BLUEPRINT_AT, sides[j][0], sides[j][1])
+			if k >= 4:
+				var rose := Vector2(0.14, 0.08)
+				Assets.line_on(b, BLUEPRINT_AT, rose + Vector2(0, -0.04), rose + Vector2(0, 0.04))
+				Assets.line_on(b, BLUEPRINT_AT, rose + Vector2(-0.03, 0), rose + Vector2(0.03, 0))
+			Assets.pencil(b, _rng)
+			if k == 0:
+				b.blob(Vector3(0.2, 0.012, 0.035), Vector3(0.05, 0.007, 0.022), 2, 6, Assets.CHERT, _rng, 0.1, "stone")
+			for i in mini(k, 3):
+				b.box(Vector3(0.17 + _rng.randf_range(0, 0.08), 0.002, _rng.randf_range(0.03, 0.09)), Vector3(0.012, 0.002, 0.006),
+						Assets.CUT_WOOD, Basis(Vector3.UP, _rng.randf() * PI), "wood")
 		"blueprint_softwood_house":
 			# The house drawn a few lines at a time on the sheet, the pencil
 			# beside it, sharpened with the blade at the start and halfway.
@@ -2069,6 +2264,10 @@ func _target(out: String, k: int) -> Vector3:
 			return [Vector3(0, 0.05, 0), Vector3(0, 0.07, 0), Vector3(0.05, 0.03, 0)][mini(k, 2)]
 		"ash_pencil":
 			return [Vector3(0, 0.03, 0), Vector3(0, 0.03, 0.08), Vector3(0, 0.03, 0.03), Vector3(-0.07, 0.03, 0)][mini(k, 3)]
+		"chart_map":
+			if k == 0:
+				return Vector3(0.15, 0.02, 0)
+			return Assets.on_sheet(BLUEPRINT_AT, [Vector2(0.0, -0.14), Vector2(0.0, 0.14), Vector2(0.14, 0.08)][mini(k - 1, 2)]) + Vector3(0, 0.005, 0)
 		"blueprint_softwood_house":
 			if k in recipe.get("sharpen", []):
 				return Vector3(0.15, 0.02, 0)
@@ -2081,12 +2280,17 @@ func _target(out: String, k: int) -> Vector3:
 			return Vector3(-0.1, 0.03, (k - 4.5) * 0.12)
 		"fiber_sack", "cloth_sack", "bedroll":
 			return Vector3(-0.19, 0.02, -0.16 + k * 0.045)
+		"pot_sealed":
+			return [Vector3(0.0, 0.23, 0.0), Vector3(0.086, 0.19, 0.0), Vector3(-0.086, 0.19, 0.0)][mini(k, 2)]
 		"keycard_jr":
 			return Vector3(-0.13, 0.004 * (Items.recipe_steps(recipe) - k), 0)
 		"beam_segment":
 			return Vector3(-0.15 + k * 0.3, 0.12, 0)
 		"injector":
 			return [Vector3(-0.1, 0.05, -0.05), Vector3(-0.1, 0.2, -0.05), Vector3(0.12, 0.06, -0.05)][mini(k, 2)]
+		"smashed_native_copper", "stone_grit", "crushed_copper_ore":
+			# On top of the lump, which shrinks as it is beaten.
+			return Vector3(0, 0.08 * (1.0 - k / float(Items.recipe_steps(recipe)) * 0.7) * 1.6, 0)
 	return Vector3(0, 0.05, 0)
 
 

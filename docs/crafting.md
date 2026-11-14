@@ -267,7 +267,7 @@ The **spindle** is the first step to a bow drill:
 | Wooden Canteen | Woodworking Tools | 1 board, 2 waxy residue, 1 cordage | 6 steps | A flask for two servings of water or soup (see [Canteens](#canteens)) |
 | Unfired Unsealed Fermentation Vessel | Clay Platter | 8 wet clay | 6 steps | An open crock for pickling (see [Fermentation](#fermentation)) |
 | Unfired Sealed Fermentation Vessel | Clay Platter | 10 wet clay | 7 steps | A lidded jar for brewing alcohol or salting (see [Fermentation](#fermentation)) |
-| Wet Sheet | Papermaking Tools | 6 plant fiber, 1 pot of swamp or boiled water | 5 steps | Dry it in a campfire to make a **Big Blank Sheet**. You keep the empty pot |
+| Wet Sheet | Papermaking Tools | 6 plant fiber, 1 serving of swamp or boiled water (a pot, a wooden canteen or a copper flask) | 5 steps | Dry it in a campfire to make a **Big Blank Sheet**. You keep the pot, canteen or flask |
 | Unfired Pencil Core | Papermaking Tools | 1 ash, 1 wet clay | 3 steps | Fire it in a campfire to make a **Pencil Core** |
 | String | Spindle (or in your bag) | 3 plant fiber | Twist | Finer, stronger cord: a bow drill needs it |
 | Fishing Rod Blank | Woodworking Tools | 1 branch | 4 steps | The rod of a fishing rod (see [Fishing gear](#fishing-gear)) |
@@ -399,9 +399,10 @@ for only 15 seconds. Thrown on land it just lands.
 A **Big Blank Sheet** and an **Ash Pencil** are what blueprints are drawn
 with. Both are made at a workbench with the papermaking tools on its rack:
 
-1. **Paper.** Lay out 6 plant fiber and a Pot of Swamp Water or a Pot of
-   Boiled Water. Mash the fiber to pulp in the bowl and lift a sheet on the
-   screen (5 steps). You get a Wet Sheet and the empty pot back. Set the wet
+1. **Paper.** Lay out 6 plant fiber and some swamp or boiled water: a pot,
+   a wooden canteen or a copper flask. Mash the fiber to pulp in the bowl and
+   lift a sheet on the screen (5 steps). You get a Wet Sheet, and the pot
+   back empty (a canteen or flask one serving lighter). Set the wet
    sheet in a lit campfire, like pottery, and take it off as a Big Blank
    Sheet. It never burns.
 2. **The core.** Lay out 1 ash (scooped from a campfire with a mattock) and
@@ -411,6 +412,29 @@ with. Both are made at a workbench with the papermaking tools on its rack:
    chert blade or a stone axe laid out or in your bag. Split the stick, lay
    the core in the groove, close the halves and bind them (4 steps). The
    blade is kept. A pencil has 50 uses, shown on it as it wears.
+
+### The map
+
+A **Map** is ruled at a workbench (papermaking tools on the rack) from a
+Big Blank Sheet with an Ash Pencil and any blade: sharpen the pencil (it
+wears one use off), then rule a border and a compass rose (4 steps).
+
+- **One chart per world.** The map shows the world's chart, so every Map you
+  make shows the same drawing. It starts blank.
+- **Charting.** While you carry a Map and an Ash Pencil, the ground within
+  about 32 m of you is drawn in as you go: water shaded by depth, marsh,
+  higher ground darker, and the islands' bare rock.
+- **The pencil goes blunt** after charting a good stretch of new ground
+  (400 squares of 8 m). Sharpen it by Using the pencil with a blade (a chert
+  blade or a stone axe) in your bag; that wears one use off it. Walking onto
+  new ground with no pencil, or only blunt ones, you are told so in the top
+  left every 20 seconds or so.
+- **Looking at it.** Use the map (right-click) to open it. An arrow shows
+  where you are and which way you face. Scroll to zoom, drag to move about,
+  Esc or Tab to put it away.
+- **Markers.** Click the map to put a numbered marker down, right-click one
+  to rub it out (up to 40). Markers show only on the map, never out in the
+  world.
 
 ## The softwood house
 
@@ -588,16 +612,16 @@ clean a wound (Treat): it fights moderate and major infections (see
 A clay pot can carry preserved food away from a vessel, and once sealed, it
 keeps that food forever.
 
-1. **Fill**: carry an empty clay pot and open a vessel (right-click). Under
-   its food, **Pick** 1 to 4 of the pickled, alcohol-preserved or salted
-   items, then **Fill the pot**. They go in with one serving of the vessel's
+1. **Fill**: hold an empty clay pot and press **E** at a vessel. A menu
+   lists its pickled, alcohol-preserved or salted items: **Pick** 1 to 4 of
+   them, then **Fill the pot**. They go in with one serving of the vessel's
    liquid (pickling brine, salt brine or alcohol), however many items you
-   picked. You get a **Pot of Preserves**: open, it shows what it holds, and
-   its food keeps as it would in your bag.
-2. **Seal**: with a **Wooden Cap** and a lump of **wax** in your bag, Use the
-   pot (or **Seal** in your bag). It becomes a **Sealed Pot**. Nothing in a
-   sealed pot spoils, and you can't see what is inside.
-3. **Open**: Use a sealed pot, or **Open** either kind in your bag. All the
+   picked. You get an **Unsealed Pot of Preserves**: it shows what it holds,
+   and its food keeps as it would in your bag.
+2. **Seal**: kneel to craft (C) and lay out the pot, a **Wooden Cap** and a
+   lump of **wax**, then **Seal the pot** (3 clicks). It becomes a **Sealed
+   Pot**. Nothing in a sealed pot spoils, and you can't see what is inside.
+3. **Open**: Use either kind, or **Open** it in your bag. All the
    food comes out into your bag, with the age it had when sealed. You get
    the clay pot and the cap back; the wax and the liquid are lost. Anything
    that doesn't fit in your bag lands at your feet.
@@ -613,8 +637,11 @@ book of everything you know how to make, sorted into stone tools, weapons,
 materials, fire, containers, medicine and gear. Recipes that need a tool on
 the workbench rack are kept apart on a **Rack tools** page, grouped by tool,
 which appears once you have made or held one of those tools. Each tool's
-recipes join it as you learn the tool. The soup pot is the exception: it still
-needs the clay platter on the rack, but it is listed with the containers.
+recipes join it as you learn the tool. The soup pot and the sheet of paper are
+the exceptions: they still need the clay platter or the papermaking tools on
+the rack, but are listed with the containers and under Writing. The rack tools
+themselves (platter, chisel and saw, spindle, papermaking tools) are made from
+the Workbench page.
 
 Crafting has tiers: by hand on the ground, at a workbench, and at a workbench
 with metal tools. The recipes of higher tiers stay hidden in the book until you

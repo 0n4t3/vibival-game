@@ -92,6 +92,7 @@ const INF_NAMES := ["", "Minor infection", "Moderate infection", "Major infectio
 const INF_HARM := [0.0, 0.0, 0.25, 0.4, 0.3, 0.5]
 const MINOR_TIME := 720.0       # a minor infection clears or worsens after this
 const MINOR_WORSEN := [0.1, 0.3]   # chance it worsens: clean and covered, otherwise
+const EARLY_TIME := 2880.0      # a minor infection caught in a world's first two days always clears (`early`)
 const MODERATE_TIME := 1440.0   # untreated, a moderate infection turns major after a day
 const MAJOR_TIME := 1440.0      # and a major one septic after another
 const REMISSION_TIME := 1440.0  # in remission it flares up again unless treated again
@@ -155,7 +156,9 @@ var _vomit_t := 0.0
 var chill := 0.0    # seconds of being chilled left
 ## Each wound: {sev, bleed (level 0-3), bleed_t (minor: seconds left), held
 ## (major: seconds held back), dirt, cover ("", "bandage", "wax"), inf
-## (stage), inf_t (seconds in that stage), sterile (cleaned with alcohol), src}
+## (stage), inf_t (seconds in that stage), sterile (cleaned with alcohol), src,
+## early (infected in the world's first two days: a minor infection that
+## always clears, since washing a wound needs a clay pot)}
 var wounds: Array = []
 var limbs := {}     # "arm", "leg", "ankle" -> sleeps until it mends
 var pressing := -1  # the wound you are pressing on, while you do
@@ -200,6 +203,18 @@ func hunger_words() -> Array:
 	## The HUD's hunger line: [text, color] ("" when not hungry at all).
 	var l := hunger_level()
 	return [HUNGER_NAMES[l], NEED_COLORS[l]]
+
+
+func craving_words() -> Array:
+	## The HUD's craving line: [text, color], naming every nutrient you are
+	## short of ("Craving greens and starch"), or "" when you are short of none.
+	var what: Array = []
+	for n in ["protein", "greens", "starch"]:
+		if float(get(n)) < LOW:
+			what.append(n)
+	if what.is_empty():
+		return ["", MILD]
+	return ["Craving " + (String(what[0]) if what.size() == 1 else ", ".join(what.slice(0, -1)) + " and " + String(what[-1])), MILD]
 
 
 func thirst_words() -> Array:
@@ -513,6 +528,7 @@ func _tick_infection(w: Dictionary, delta: float, resist: float) -> void:
 		var chance: float = INFECT_RATE * w.dirt * resist * (0.5 if w.cover != "" else 1.0)
 		if randf() < chance * delta:
 			_set_inf(w, INF_MINOR)
+			w.early = Game.time < EARLY_TIME
 			status.emit("A wound is red, hot and swollen: it is getting infected.")
 		return
 	w.inf_t += delta * (1.5 if greens < LOW and w.inf != INF_SEPSIS else 1.0)
@@ -520,7 +536,7 @@ func _tick_infection(w: Dictionary, delta: float, resist: float) -> void:
 		INF_MINOR:
 			if w.inf_t >= MINOR_TIME:
 				var good: bool = w.cover != "" and w.dirt < 0.1
-				if randf() < MINOR_WORSEN[0 if good else 1]:
+				if not w.get("early", false) and randf() < MINOR_WORSEN[0 if good else 1]:
 					_set_inf(w, INF_MODERATE)
 					status.emit("The infection is getting worse. You feel feverish.")
 				else:
@@ -543,6 +559,7 @@ func _tick_infection(w: Dictionary, delta: float, resist: float) -> void:
 func _set_inf(w: Dictionary, stage: int) -> void:
 	w.inf = stage
 	w.inf_t = 0.0
+	w.early = false
 	if stage != INF_MODERATE:
 		w.sterile = false
 
@@ -982,21 +999,15 @@ func status_words() -> Array:
 	if dead:
 		return ["Dead", BAD]
 	var all := problems()
-	var p := all.filter(func(e): return not e.get("need", false))  # hunger and thirst have their own lines
+	# Hunger, thirst and cravings have their own lines (craving_words), so a
+	# worse problem like venom can't hide them.
+	var p := all.filter(func(e): return not e.get("need", false) and not e.has("craving"))
 	if p.is_empty():
 		if all.size() > p.size():
 			return ["", GOOD]  # hungry or thirsty, shown on those lines: not "Healthy"
 		return ["Wounded, healing" if not wounds.is_empty() else "Healthy", GOOD]
 	var words: String = p[0].words
-	if p[0].has("craving"):
-		# Cravings tie, so name them all ("Craving greens and starch"), not
-		# just whichever sorted first.
-		var what: Array = []
-		for n in ["protein", "greens", "starch"]:  # in a fixed order (the sort isn't stable)
-			if p.any(func(e): return e.get("craving", "") == n):
-				what.append(n)
-		words = "Craving " + (String(what[0]) if what.size() == 1 else ", ".join(what.slice(0, -1)) + " and " + String(what[-1]))
-	elif p.size() > 1 and p[1].rank >= 1.5:
+	if p.size() > 1 and p[1].rank >= 1.5:
 		words += ", " + String(p[1].words).to_lower()
 	return [words, p[0].color]
 
@@ -1059,7 +1070,7 @@ static func _wound_from(w: Dictionary) -> Dictionary:
 	var sev := float(w.get("sev", 0.2))
 	var out := {"sev": sev, "bleed_t": float(w.get("bleed_t", 30.0)), "held": float(w.get("held", 0.0)),
 		"dirt": float(w.get("dirt", 0.0)), "cover": String(w.get("cover", "")), "inf_t": float(w.get("inf_t", 0.0)),
-		"sterile": bool(w.get("sterile", false)), "src": str(w.get("src", ""))}
+		"sterile": bool(w.get("sterile", false)), "src": str(w.get("src", "")), "early": bool(w.get("early", false))}
 	if w.has("cover"):
 		out.bleed = clampi(int(w.get("bleed", 0)), 0, 3)
 		out.inf = clampi(int(w.get("inf", 0)), INF_NONE, INF_SEPSIS)

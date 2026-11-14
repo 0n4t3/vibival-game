@@ -767,7 +767,8 @@ func _build_fish() -> void:
 func _think_fish(delta: float) -> void:
 	## Swimming, its tail beats (the line moves it). On land it flops about
 	## on its side without going anywhere, and dies after SUFFOCATE seconds.
-	var on_land: bool = world != null and _ground(position.x, position.z) >= world.water_level() - 0.05
+	var on_land: bool = world != null and (_ground(position.x, position.z) >= world.water_level() - 0.05 \
+			or position.y > world.water_level() + 0.1)   # or up on a deck
 	_phase += delta * (16.0 if on_land else 9.0)
 	for t in _tail:
 		t.rotation.y = sin(_phase) * (0.7 if on_land else 0.35)
@@ -830,7 +831,43 @@ func _build_meganeura() -> void:
 
 # --- Behaviour ---------------------------------------------------------------------
 
+const WATER_PREDATORS := ["lurker", "ambusher"]   # kept off a finished dock (dock.gd keeps_out)
+
 func _process(delta: float) -> void:
+	var was := global_position
+	_behave(delta)
+	if not dead and def.behavior in WATER_PREDATORS:
+		_keep_off_docks(was, delta)
+
+
+func _keep_off_docks(was: Vector3, delta: float) -> void:
+	## A finished dock's water and the bank behind it (dock.gd keeps_out) are
+	## out of bounds: a water predator never moves in, and one already there
+	## (the dock was finished round it) heads straight out. Its homes are moved
+	## out too, so it does not keep coming back.
+	if _victim != null and is_instance_valid(_victim):
+		return  # already has hold of something: let it drag it off
+	var dock: Node3D = Game.dock_keeps_out(global_position)
+	if dock == null:
+		return
+	if dock.keeps_out(was):
+		var out: Vector3 = dock.way_out(global_position)
+		var to := out - global_position
+		to.y = 0.0
+		if to.length() > 0.01:
+			position += to.normalized() * minf(maxf(def.speed, 2.0) * delta, to.length())
+			heading = atan2(to.x, to.z)
+			rotation.y = heading + PI
+	else:
+		global_position = Vector3(was.x, global_position.y, was.z)
+	for k in ["home", "water_home", "_target"]:
+		var h: Vector3 = get(k)
+		if h.is_finite() and dock.keeps_out(h):
+			var o: Vector3 = dock.way_out(h)
+			set(k, Vector3(o.x, h.y, o.z))
+
+
+func _behave(delta: float) -> void:
 	if dead:
 		return
 	if carried_by:
@@ -866,7 +903,8 @@ func _process(delta: float) -> void:
 	# comes for you in a house, on a finished dock or in an island's safe
 	# water; out on a raft the danger is a bite on its corner (raft.gd).
 	var quarry: Node3D = player if player and Game.hostile() and not Game.safe(player.global_position) \
-			and player.get("riding") == null else null
+			and player.get("riding") == null \
+			and not (def.behavior in WATER_PREDATORS and Game.dock_keeps_out(player.global_position)) else null
 	if drawn and _think_drawn(quarry, dist, delta):
 		return
 	match def.behavior:
@@ -2315,7 +2353,7 @@ func _die(killer: Node3D = null) -> void:
 	_prey = null
 	if carried_by:
 		carried_by = null
-		position.y = maxf(_ground(position.x, position.z), 0.0)
+		position.y = maxf(_floor_below(), 0.0)
 	for r in _ripples:
 		r.visible = false
 	if _body:
@@ -2323,12 +2361,12 @@ func _die(killer: Node3D = null) -> void:
 	if _buzz:
 		_buzz.stop()
 	if def.habitat == "air":
-		position.y = maxf(_ground(position.x, position.z), 0.0) + 0.05
+		position.y = maxf(_floor_below(), 0.0) + 0.05
 	elif def.habitat == "amphibious":
-		position.y = maxf(_ground(position.x, position.z), -0.3)
+		position.y = maxf(_floor_below(), -0.3)
 	elif def.habitat == "water" and world:
 		# A fish: on the ground, or floating at the surface.
-		position.y = maxf(_ground(position.x, position.z), world.water_level() - 0.05)
+		position.y = maxf(_floor_below(), world.water_level() - 0.05)
 		_body.position = Vector3(0, def.radius * 0.6, 0)
 		_body.rotation = Vector3.ZERO
 		if hooked_by and is_instance_valid(hooked_by) and hooked_by.has_method("fish_died"):
@@ -2350,6 +2388,14 @@ func _die(killer: Node3D = null) -> void:
 	add_child(_carcass)
 	if killer != null and killer == Game.player:
 		Game.notify("You killed a %s." % def.name)
+
+
+func _floor_below() -> float:
+	## Where its body comes to rest falling from here: the ground, or a deck
+	## or floor it is over (swamp.floor_below).
+	if world and world.has_method("floor_below"):
+		return world.floor_below(global_position)
+	return _ground(position.x, position.z)
 
 
 func expired() -> bool:

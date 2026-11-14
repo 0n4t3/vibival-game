@@ -10,6 +10,7 @@ signal escape_rolled(chance: float, roll: float, freed: bool)
 const Survival := preload("res://src/core/survival.gd")
 const Inventory := preload("res://src/core/inventory.gd")
 const Preserves := preload("res://src/core/preserves.gd")
+const Chart := preload("res://src/core/chart.gd")
 const ThrownRock := preload("res://src/world/thrown_rock.gd")
 const Fishing := preload("res://src/world/fishing.gd")
 const House := preload("res://src/world/house.gd")
@@ -81,6 +82,13 @@ var _swing := 1.0
 var _step_dist := 0.0
 var _shake := 0.0
 var _bob := 0.0
+## Poling a raft (_physics_riding): the pole in hand is gripped near its top,
+## planted ahead in the water and pushed back past you, stroke after stroke.
+const POLE_RATE := 3.0     # radians of stroke a second
+const POLE_DRAW := 2.5     # the pole model drawn this much longer while poling
+var poling := false
+var pole_phase := 0.0
+var _pole_k := 0.0         # how far into the poling pose the hand is
 var _held_id := "~"
 var _held_cast := false   # the held rod is cast: shown without its line and hook
 var _press_t := 0.0             # seconds you have held pressure on a wound
@@ -229,6 +237,7 @@ func water_depth() -> float:
 
 
 func _physics_process(delta: float) -> void:
+	poling = false
 	if grabbed_by:
 		_physics_grabbed(delta)
 		return
@@ -355,12 +364,17 @@ func _physics_riding(delta: float) -> void:
 		var pad_look := Input.get_vector("look_left", "look_right", "look_up", "look_down")
 		if pad_look != Vector2.ZERO:
 			_look(pad_look * 2.6 * delta)
-	var poling: bool = input != Vector2.ZERO and "pole" in Items.def(Game.inventory.held_id()).get("tags", [])
+	poling = input != Vector2.ZERO and "pole" in Items.def(Game.inventory.held_id()).get("tags", [])
 	if poling:
 		var dir := transform.basis * Vector3(input.x, 0, input.y)
 		dir.y = 0.0
 		riding.push = dir.normalized() * minf(input.length(), 1.0)
 		_bob += delta * 2.0
+		var was := floorf(pole_phase / TAU)
+		pole_phase += delta * POLE_RATE
+		if floorf(pole_phase / TAU) > was:
+			# Planted again: a soft plunge ahead of the raft.
+			Sfx.play_at("splash", global_position - transform.basis.z * 1.6, -12.0)
 	global_position = riding.stand_global()
 	velocity = Vector3.ZERO
 	_air_top = -INF
@@ -422,6 +436,9 @@ func _process(delta: float) -> void:
 	var s := sin(_swing * PI)
 	hand.rotation = Vector3(-s * 1.1, s * 0.4, 0)
 	hand.position = Vector3(0.32 - s * 0.15, -0.28 + bob * 0.5, -0.5 - s * 0.2)
+	_pole_k = move_toward(_pole_k, 1.0 if poling and work_spot == null else 0.0, delta * 3.0)
+	if _pole_k > 0.0 or Items.def(_held_id).get("shape", "") == "rod":
+		_pole_pose()
 	if rod_tug > 0.0:
 		# Something on the line: the rod jerks and bends toward it.
 		var tt := Time.get_ticks_msec() * 0.001
@@ -524,6 +541,24 @@ func _update_torch(delta: float) -> void:
 	_torch_light.light_energy = (0.25 if wet else 0.9) * f
 
 
+func _pole_pose() -> void:
+	## Blends the hand into the poling stroke: reach forward and plant the
+	## tip ahead (pull = 0), then lean on it and push it back past you
+	## (pull = 1), lifting it clear on the way forward again.
+	var k := smoothstep(0.0, 1.0, _pole_k)
+	var pull := 0.5 - 0.5 * cos(pole_phase)
+	var lift := maxf(-sin(pole_phase), 0.0)   # swung forward again, clear of the water
+	var tip := lerpf(-1.2, -1.7, pull) + lift * 0.35
+	hand.rotation = hand.rotation.lerp(Vector3(tip, 0.25, -0.15), k)
+	hand.position = hand.position.lerp(Vector3(0.28, -0.3 - pull * 0.1 + lift * 0.05, lerpf(-0.78, -0.52, pull)), k)
+	if Items.def(_held_id).get("shape", "") == "rod" and fishing == null:
+		# Drawn full length (the item is a short model), gripped at the top,
+		# the rest of it reaching down into the water.
+		var long := lerpf(1.0, POLE_DRAW, k)
+		held_mesh.scale = Vector3(long, lerpf(1.0, 1.3, k), lerpf(1.0, 1.3, k))   # the model lies along x
+		held_mesh.position = held_mesh.basis.orthonormalized() * Vector3(lerpf(0.5, 0.6, k) * long, 0, 0)
+
+
 func _update_held_mesh() -> void:
 	if _held_id == "":
 		held_mesh.mesh = null
@@ -538,7 +573,7 @@ func _update_held_mesh() -> void:
 	held_mesh.position = Vector3.ZERO
 	held_mesh.scale = Vector3.ONE
 	match shape:
-		"axe", "drill", "stick", "mattock", "torch", "torch_lit":
+		"axe", "drill", "stick", "mattock", "hammer", "torch", "torch_lit":
 			# Long items lie along +X: stand them up, leaning away, gripped low.
 			held_mesh.rotation = Vector3(-0.5, 0, PI * 0.5)
 			held_mesh.position = held_mesh.basis * Vector3(0.18, 0, 0)
@@ -703,6 +738,16 @@ func _use_held() -> void:
 		else:
 			cast_rod()
 		return
+	if def.get("chart", false):
+		if world and world.has_method("open_map"):
+			world.open_map()
+		return
+	if id == "ash_pencil":
+		var why: String = Chart.sharpen(inv, inv.selected)
+		Game.notify(why if why != "" else "You sharpen the pencil.")
+		if why == "":
+			Sfx.play("rustle", -6.0, 0.3)
+		return
 	if def.has("blueprint"):
 		if world and world.has_method("place_blueprint") and world.place_blueprint(def.blueprint, self):
 			inv.take(inv.selected, 1)
@@ -824,24 +869,13 @@ func _use_measure(i: int, def: Dictionary) -> bool:
 	return true
 
 
-func use_preserves(i: int, how := "") -> bool:
-	## A preserving pot in slot i (core/preserves.gd): "seal" it, "open" it
-	## (everything into the bag; what doesn't fit lands at your feet), or ""
-	## for Use: seal an open pot, open a sealed one.
+func use_preserves(i: int) -> bool:
+	## Opens the preserving pot in slot i (core/preserves.gd): everything into
+	## the bag, what doesn't fit at your feet. Sealing one is a hand recipe.
 	var inv = Game.inventory
 	var s = inv.slots[i]
 	if s == null or not Items.def(s.id).get("preserves", false):
 		return false
-	if how == "":
-		how = "seal" if s.id == "pot_preserves" else "open"
-	if how == "seal":
-		var why: String = Preserves.seal(inv, i)
-		if why != "":
-			Game.notify(why + (" Open it in your bag to take the food out." if s.id == "pot_preserves" else ""))
-			return false
-		Sfx.play("craft", -10.0)
-		Game.notify("You press the cap on and seal it with wax.")
-		return true
 	var spilled: Array = Preserves.open(inv, i)
 	for it in spilled:
 		if world and world.has_method("spawn_pickup"):

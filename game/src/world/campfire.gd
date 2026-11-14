@@ -136,6 +136,8 @@ func _ready() -> void:
 		var a := TAU * (i + 0.5) / SPOTS
 		s.position = Vector3(cos(a) * SPOT_R, 0.0, sin(a) * SPOT_R)
 		s.position.y = _lift(s.position)  # on the ground there, not sunk in a slope
+		if hearth:
+			s.position = hearth_spot(a)
 		s.rotation.y = -a
 		s.shape = CollisionShape3D.new()
 		var sh := SphereShape3D.new()
@@ -162,6 +164,16 @@ func _lift(local: Vector3) -> float:
 		return 0.0
 	var g: Vector3 = global_transform * local
 	return clampf(w.ground_height(g.x, g.z) - global_position.y, -0.3, 0.4)
+
+
+func hearth_spot(a: float) -> Vector3:
+	## Where a thing put on a fireplace sits (house.gd's hearth: a ring of
+	## stones round all but its open front, on a clay floor): up on the
+	## stones, or out on the clay at the front.
+	var front := absf(wrapf(a - PI * 0.5, -PI, PI)) < deg_to_rad(50.0)
+	if front:
+		return Vector3(cos(a) * 0.42, 0.03, sin(a) * 0.42)
+	return Vector3(cos(a) * 0.5, 0.17, sin(a) * 0.5)
 
 
 func _exit_tree() -> void:

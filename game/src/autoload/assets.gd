@@ -1174,6 +1174,21 @@ func _item_mesh(b, rng: RandomNumberGenerator, id: String) -> void:
 			stick(b, rng, Vector3(-0.32, 0.03, 0), Vector3(0.28, 0.03, 0), 0.022)
 			knapped(b, Items.knap_grid("mattock_head"), 0.04, 0.034, def.get("head", CHERT), rng, Transform3D(Basis(), Vector3(0.27, 0.03, 0.0)))
 			lashing(b, Vector3(0.2, 0.03, 0), Vector3(0.31, 0.03, 0), 0.03, 5)
+		"hammer_head":
+			# The square cast head lying on its cheek, the eye showing.
+			var hh: Color = def.get("head", CHERT)
+			b.box(Vector3(0, 0.031, 0), Vector3(0.062, 0.062, 0.13), hh, Basis(), "metal")
+			for side in [-1.0, 1.0]:
+				b.box(Vector3(0, 0.035, side * 0.072), Vector3(0.07, 0.07, 0.016), hh * 0.92, Basis(), "metal")
+			b.cylinder(Vector3(0, 0.0625, 0), Vector3(0, 0.064, 0), 0.016, 0.016, 7, Color(0.12, 0.08, 0.05), Color(-1, 0, 0), "solid")
+		"hammer":
+			# A short handle through the eye of a square cast head, its two
+			# faces flat and a little wider than its cheeks.
+			var head: Color = def.get("head", CHERT)
+			stick(b, rng, Vector3(-0.2, 0.03, 0), Vector3(0.235, 0.03, 0), 0.02)
+			b.box(Vector3(0.2, 0.03, 0.0), Vector3(0.062, 0.062, 0.13), head, Basis(), "metal")
+			for side in [-1.0, 1.0]:
+				b.box(Vector3(0.2, 0.03, side * 0.072), Vector3(0.07, 0.07, 0.016), head * 0.92, Basis(), "metal")
 		"torch", "torch_lit":
 			stick(b, rng, Vector3(-0.32, 0.03, 0), Vector3(0.2, 0.03, 0), 0.022)
 			var wax: Color = Items.def("wax").color

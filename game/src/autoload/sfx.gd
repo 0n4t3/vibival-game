@@ -336,6 +336,33 @@ func _s_thunder() -> PackedFloat32Array:
 	return b
 
 
+func _s_sonic() -> PackedFloat32Array:
+	## A fireball passing over high up: a distant double boom, then a ragged
+	## crackle trailing off. Deep, but without an impact's long ground rumble.
+	var b := _mix(_tone(1.2, 62, 34, 4.0, 0.9, 0.008), _noise(0.4, 0.15, 7.0, 0.9))
+	b = _mix(b, _mix(_tone(1.0, 58, 30, 4.5, 0.75, 0.008), _noise(0.35, 0.15, 8.0, 0.7)), int(0.18 * RATE))
+	b = _mix(b, _noise(2.2, 0.06, 1.8, 0.5), int(0.1 * RATE))
+	var t := 0.5
+	while t < 1.8:
+		b = _mix(b, _noise(0.04, 0.85, 90.0, _rng.randf_range(0.1, 0.3) * (1.8 - t)), int(t * RATE))
+		t += _rng.randf_range(0.03, 0.15)
+	for i in b.size():
+		b[i] = tanh(b[i] * 1.6) * 0.85
+	return b
+
+
+func _s_impact() -> PackedFloat32Array:
+	## A meteorite hitting the ground: a deep slam you feel as much as hear,
+	## then earth and debris pattering down.
+	var b := _tone(3.0, 55, 18, 1.4, 1.0, 0.01)
+	b = _mix(b, _noise(0.35, 0.7, 10.0, 0.9))
+	b = _mix(b, _noise(3.0, 0.03, 1.2, 1.6))
+	b = _mix(b, _noise(2.0, 0.5, 2.5, 0.25), int(0.4 * RATE))
+	for i in b.size():
+		b[i] = tanh(b[i] * 1.8) * 0.9
+	return b
+
+
 func _s_hum() -> PackedFloat32Array:
 	var b := _buf(2.0)
 	var phase := 0.0

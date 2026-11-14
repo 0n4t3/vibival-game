@@ -32,6 +32,8 @@ const Clamp := preload("res://src/world/clamp.gd")
 const HeavyStone := preload("res://src/world/heavy_stone.gd")
 const Outcrop := preload("res://src/world/outcrop.gd")
 const Crater := preload("res://src/world/crater.gd")
+const Chart := preload("res://src/core/chart.gd")
+const MapView := preload("res://src/ui/map_view.gd")
 
 var terrain: RefCounted
 var chunks := {}            # Vector2i -> chunk
@@ -70,11 +72,14 @@ const SHORE_LIFE := [1.0, 3.0]  # days each one lies there
 const SHORE_CHERT := 0.3
 const SHORE_STICK := 0.3        # driftwood sticks stranded at the edge, in the shallows or on the bank
 const SHORE_COPPER := 0.55      # of what turns up on an island's shore: native copper
+const ISLAND_COPPER := 4        # lumps of native copper washed up round each island at a time
 const SHORE_SALT := 0.35        # of everything washing up: a salt crust, on dry bank
 const SHORE_ITEM_REACH := 8.0   # sticks and stones lie up to this far from open water
 const SHORE_SALT_REACH := 6.0   # salt crusts lie up to this far from the water's edge
 const SHORE_ITEM_TOP := 0.6     # ...on ground no higher than this above the water
-var _shore := []                # [{node, until}]
+var _shore := []                # [{node, until, isle (an island's native copper)}]
+var _chart_nag := 0.0             # seconds until charting may complain again
+var _isle_copper := {}            # island index -> Game.time its native copper washes away (_island_copper)
 var _shore_t := 0.0
 # Twice as far from the edge as you can reach the water to drink: any closer
 # and a Uranocentrodon buried nearby comes for you.
@@ -87,6 +92,7 @@ var _frenzy_left := 0.0
 var _edge_t := 0.0
 var _sleeping := false
 var _debug_panel: Control = null
+var _map_view: Control = null
 var _sleep_confirm_t := 0.0
 var _pending_save := 0.0       # seconds to survive after a night attack before saving
 var _pending_night := -1
@@ -119,6 +125,19 @@ func _ready() -> void:
 	if Game.dev.get("weather", "") in Weather.ALL_KINDS:
 		weather.start(Game.dev["weather"])
 		weather.fade = 1.0
+	if Game.dev.has("crater"):
+		# --crater=METRES: a fresh meteorite crater that far straight ahead
+		# (to look at its smoke column).
+		var fwd := -player.global_transform.basis.z
+		var at := player.global_position + Vector3(fwd.x, 0, fwd.z).normalized() * float(Game.dev["crater"])
+		at.y = ground_height(at.x, at.z)
+		add_crater(at, Game.time)
+		add_heavy_stone("meteorite", at, 0.0, 15.0, {"buried": true})
+	if Game.dev.has("meteor-fall"):
+		# --meteor-fall=SECONDS: a daytime shower that brings one down then.
+		weather.start("day_meteors")
+		weather.fade = 1.0
+		weather.fall_at = float(Game.dev["meteor-fall"])
 	_spawn_islands()
 	if not restore.is_empty():
 		_apply_restore(restore)
@@ -382,6 +401,17 @@ func _dev_wood() -> void:
 			sp.global_position = h.fire.global_position
 			h.fire.fuel = 600.0
 			h.fire._set_lit(true)
+		if h.fire and Game.dev.has("hearth"):
+			# --hearth=id,id,...: those on the lit fireplace, and you looking at it.
+			var ids := String(Game.dev["hearth"]).split(",", false)
+			for i in mini(ids.size(), h.fire.SPOTS):
+				h.fire.cooking[i] = {"id": ids[i], "t": 0.0}
+			h.fire.fuel = 600.0
+			h.fire._set_lit(true)
+			h.fire._refresh_spots()
+			player.global_position = h.to_global(House.HEARTH + Vector3(-0.2, 0.05, 1.7))
+			var to: Vector3 = h.fire.global_position + Vector3(0, 0.9, 0) - player.global_position
+			player.rotation.y = atan2(-to.x, -to.z)
 		match String(Game.dev.get("house-stand", "")):
 			"inside":
 				player.global_position = h.to_global(Vector3(-0.6, 0.05, 0.4))
@@ -396,6 +426,12 @@ func _dev_wood() -> void:
 				var u := h.to_global(Vector3(0.6, 0, 0.2))
 				player.global_position = Vector3(u.x, ground_height(u.x, u.z), u.z)
 		_calm_until = INF
+	if Game.dev.has("dock"):
+		# --dock=N: a dock site on the nearest shore with its first N parts
+		# built, you at its land end; --dock-work kneels to build the next part
+		# (with what it needs in your bag), --dock-steps=N beginning it and
+		# doing N steps.
+		_dev_dock()
 	if Game.dev.has("bench"):
 		# --bench=clay_platter,woodworking_tools puts a workbench in front of
 		# you with those tools on its rack; --at-bench works at it.
@@ -415,6 +451,13 @@ func _dev_make(b: Node3D) -> void:
 	player.focus = b
 	start_work()
 	var make: String = Game.dev.get("make", "")
+	if work and Game.dev.has("lay"):
+		# --lay=item:n,...: these laid out on the bench.
+		for e in String(Game.dev["lay"]).split(",", false):
+			var kv := e.split(":")
+			var n := int(kv[1]) if kv.size() > 1 else 1
+			Game.inventory.add(kv[0], n)
+			work.lay(Game.inventory.find(kv[0]), n)
 	if work and make != "":
 		var r := Items.recipe_for(make, where)
 		for id in r.get("in", {}):
@@ -481,6 +524,20 @@ func floor_height(p: Vector3) -> float:
 		h = maxf(h, d.floor_top(p))
 	for r in Game.rafts:
 		h = maxf(h, r.floor_top(p))
+	return h
+
+
+func floor_below(p: Vector3) -> float:
+	## The highest thing under p to come to rest on, however far above it p
+	## is: the ground, or a house's floor, a dock's deck or a raft's (things
+	## falling from high up land on them rather than through them).
+	var h := ground_height(p.x, p.z)
+	for s in Game.houses + Game.docks + Game.rafts:
+		if not is_instance_valid(s):
+			continue
+		var t: float = s.floor_top(Vector3(p.x, s.global_position.y, p.z))
+		if t > h and t <= p.y + 0.3:
+			h = t
 	return h
 
 
@@ -999,6 +1056,7 @@ func _process(delta: float) -> void:
 	if _decay_t > 1.0:
 		_age_torches(_decay_t)
 		Game.inventory.tick(_decay_t)
+		_chart(_decay_t)
 		_decay_t = 0.0
 
 	_frenzy_left = maxf(_frenzy_left - delta, 0.0)
@@ -1251,9 +1309,45 @@ func amphibian_spot(want: String, p: Vector3) -> Array:
 					pos = water
 				elif attempt == tries - 1 and _rng.randf() < 0.3:
 					water = pos
-		if water.is_finite() and not Game.nearest_fire(pos, 15.0) and not Game.dock_safe(pos) and not Game.island_safe(pos):
+		if water.is_finite() and not Game.nearest_fire(pos, 15.0) and not Game.dock_keeps_out(pos) and not Game.island_safe(pos):
 			return [pos, water]
 	return []
+
+
+# --- The charted map (core/chart.gd) --------------------------------------------------
+
+const CHART_NAG := 20.0          # how often charting complains of no pencil or a blunt one
+
+func _chart(dt: float) -> void:
+	## Draws the ground round you onto your Map as you go, if you carry a
+	## sharp pencil; on new ground without one, says so now and then.
+	_chart_nag = maxf(_chart_nag - dt, 0.0)
+	if player.vitals.dead:
+		return
+	var why: String = Chart.chart_round(Game.inventory, player.global_position)
+	if why == "" or _chart_nag > 0.0:
+		return
+	_chart_nag = CHART_NAG
+	if why == "pencil":
+		Game.notify("You have no pencil to draw your map with.")
+	else:
+		Game.notify("Your pencil is blunt and the map isn't being drawn. Sharpen it: Use the pencil with a blade in your bag.")
+
+
+func open_map() -> void:
+	## Opens the charted map (ui/map_view.gd).
+	if inv_ui.visible or work or player.vitals.dead:
+		return
+	if _map_view == null:
+		_map_view = MapView.new()
+		_map_view.world = self
+		inv_ui.get_parent().add_child(_map_view)
+		_map_view.closed.connect(func():
+			player.ui_open = false
+			player.capture_mouse(true))
+	player.ui_open = true
+	player.capture_mouse(false)
+	_map_view.open()
 
 
 # --- Shore stones --------------------------------------------------------------------------
@@ -1268,10 +1362,13 @@ func _update_shore(delta: float) -> void:
 		if not is_instance_valid(n) or n.is_queued_for_deletion():
 			_shore.erase(e)
 		elif Game.time > e.until or n.global_position.distance_to(p) > SHORE_RANGE * 2.0:
+			if e.has("isle") and Game.time <= e.until:
+				_isle_copper.erase(e.isle)  # left lying, not picked up: lay them again next visit
 			n.queue_free()
 			_shore.erase(e)
 		elif n.global_position.distance_to(p) < SHORE_RANGE:
 			near += 1
+	_island_copper(p)
 	_shore_t -= delta
 	if near >= SHORE_ITEMS or _shore_t > 0.0:
 		return
@@ -1351,6 +1448,44 @@ func add_shore_item(id: String, pos: Vector3, until: float) -> Node3D:
 	pk.rotation.y = _rng.randf() * TAU
 	_shore.append({"node": pk, "until": until})
 	return pk
+
+
+func _island_copper(p: Vector3) -> void:
+	## Every island always has native copper on its shore: coming within
+	## SHORE_RANGE of one whose last batch has gone (washed away after
+	## SHORE_LIFE days, or never laid), ISLAND_COPPER lumps wash up round its
+	## waterline together. Those picked up are gone until the next batch.
+	for i in terrain.islands.size():
+		var isl: Dictionary = terrain.islands[i]
+		if Game.time <= float(_isle_copper.get(i, -1.0)) \
+				or Vector2(p.x - isl.x, p.z - isl.z).length() > float(isl.r) + SHORE_RANGE:
+			continue
+		var until: float = Game.time + _rng.randf_range(SHORE_LIFE[0], SHORE_LIFE[1]) * Game.DAY_LENGTH
+		_isle_copper[i] = until
+		for k in ISLAND_COPPER:
+			var spot := island_shore_spot(isl)
+			if spot.is_finite():
+				add_shore_item("native_copper", spot, until)
+				_shore[-1].isle = i
+
+
+func island_shore_spot(isl: Dictionary, tries := 24) -> Vector3:
+	## A point on an island's gravel at the waterline (from the shallows up
+	## to SHORE_ITEM_TOP above the water), or Vector3.INF.
+	for t in tries:
+		var a := _rng.randf() * TAU
+		var dir := Vector2(cos(a), sin(a))
+		# Walk in from the foot of the shelf to where it comes up out of the water.
+		var r := float(isl.r)
+		while r > float(isl.r) * 0.2:
+			var q := Vector2(isl.x, isl.z) + dir * r
+			var h: float = terrain.height(q.x, q.y)
+			if h > water_level() + SHORE_ITEM_TOP:
+				break
+			if h > water_level() - 0.25:
+				return Vector3(q.x, h, q.y)
+			r -= 0.5
+	return Vector3.INF
 
 
 func _spawn_eogyrinus(pos: Vector3, in_water: bool) -> Node3D:
@@ -1612,11 +1747,13 @@ func sleep_risk(pos: Vector3) -> Dictionary:
 		# Nothing big lies in the water round an island or a finished dock.
 		amph = 0.0
 		feel[0] = "Nothing big lives in the water here." if Game.island_safe(pos) else "Nothing will come out of the water among the dock's spiked piles."
+	var leeches := d_water < 15.0
 	if Game.sheltered(pos):
-		# Up off the ground behind walls, under a roof.
+		# Up off the ground behind walls, under a roof: nothing bites, no leeches.
 		amph = 0.0
 		pred = 0.0
-		bites = 0.06
+		bites = 0.0
+		leeches = false
 		chill = 0.0
 		flood = 0.0
 		feel = ["You are up in your house, off the ground, behind walls and under a roof. Nothing will come for you here."]
@@ -1628,7 +1765,7 @@ func sleep_risk(pos: Vector3) -> Dictionary:
 	var danger := 1.0 - (1.0 - amph) * (1.0 - pred) * (1.0 - bites * 0.5) * (1.0 - flood * 0.5)
 	return {
 		"water": d_water, "amphibian": amph, "predator": pred, "bites": bites,
-		"leeches": d_water < 15.0, "chill": chill, "flood": flood, "danger": danger,
+		"leeches": leeches, "chill": chill, "flood": flood, "danger": danger,
 		"feel": " ".join(feel),
 	}
 
@@ -1792,13 +1929,14 @@ func add_vessel(id: String, pos: Vector3, yaw := 0.0) -> Node3D:
 	return v
 
 
-func open_vessel(v: Node) -> void:
-	## Opens a fermentation vessel's window beside your bag.
+func open_vessel(v: Node, page := "vessel") -> void:
+	## Opens a fermentation vessel's window beside your bag, or ("fill_pot")
+	## the menu to fill a clay pot of preserves from it.
 	if inv_ui.visible or player.vitals.dead or player.hauling:
 		return
 	close_work()
 	inv_ui.vessel = v
-	inv_ui.open(null, "vessel")
+	inv_ui.open(null, page)
 	player.ui_open = true
 	player.capture_mouse(false)
 
@@ -1958,6 +2096,77 @@ const DOCK_SLIDE := [1.0, 2.0, 0.0, 3.0, 4.0, -1.0, 5.0, 6.0, 8.0]   # how far a
 const DOCK_TURN := [0.0, 0.2, -0.2, 0.4, -0.4]                   # and turned this much from the way you face
 
 
+func _dev_dock() -> void:
+	var start := player.global_position
+	for r in range(6, 200, 3):
+		for i in 24:
+			var a := TAU * i / 24.0
+			var q := start + Vector3(cos(a), 0, sin(a)) * r
+			q.y = ground_height(q.x, q.z)
+			if absf(q.y - water_level()) > 0.1:
+				continue
+			var dx := ground_height(q.x + 1.0, q.z) - ground_height(q.x - 1.0, q.z)
+			var dz := ground_height(q.x, q.z + 1.0) - ground_height(q.x, q.z - 1.0)
+			if Vector2(dx, dz).length() < 0.01:
+				continue
+			var down := -Vector2(dx, dz).normalized()
+			player.global_position = q + Vector3(-down.x, 0.05, -down.y)
+			player.rotation.y = atan2(-down.x, -down.y)
+			var spot := dock_spot(player)
+			if spot.why != "":
+				continue
+			if Game.dev.has("dock-deep"):
+				# --dock-deep: only where the spikes are worked from swimming.
+				var st: Vector3 = spot.at + Basis(Vector3.UP, spot.yaw) * Vector3(1.9, 0, -5.5)
+				if water_level() - ground_height(st.x, st.z) < 1.6:
+					continue
+			var d := add_dock(spot.at, spot.yaw)
+			d.build_to(int(Game.dev["dock"]))
+			_calm_until = INF
+			if Game.dev.has("dock-work"):
+				var p: Dictionary = d.next_part()
+				for id in p.get("in", {}):
+					Game.inventory.add(id, p.in[id])
+				for id in p.get("tools", {}):
+					Game.inventory.add(id, p.tools[id])
+				if p.get("tool_tag", "") == "cut":
+					Game.inventory.add("flint_blade", 1)
+				_dev_dock_work.call_deferred(d)
+			if Game.dev.has("raft") and d.complete():
+				_dev_raft.call_deferred(d)
+			return
+
+
+func _dev_raft(d: Node3D) -> void:
+	## --raft (with a finished --dock): the raft at its berth is built and you
+	## stand on it holding a pole; --raft-pole poles it straight ahead.
+	var r: Node3D = raft_at_dock(d)
+	if r == null:
+		return
+	r.build_to(r.parts().size())
+	Game.inventory.add("calamites_pole", 1)
+	Game.inventory.select(Game.inventory.find("calamites_pole"))
+	await get_tree().physics_frame
+	r.board(player)
+	if Game.dev.has("raft-pole"):
+		Input.action_press("move_forward")
+
+
+func _dev_dock_work(d: Node3D) -> void:
+	## Kneels at the dock; with --dock-steps=N, begins its next part and does
+	## N steps of it.
+	start_house_work(d)
+	if work == null:
+		return
+	var opts: Array = work.options()
+	if not Game.dev.has("dock-steps"):
+		return  # just kneeling: the part not begun
+	if opts.is_empty() or not work.begin(opts[0].recipe):
+		return
+	for k in int(Game.dev.get("dock-steps", "0")):
+		work.step()
+
+
 func dock_spot(from: Node3D) -> Dictionary:
 	## Where a dock would go for someone standing at `from`: running out the
 	## way they face, its land end at the water's edge just ahead. It is
@@ -2048,12 +2257,14 @@ func raft_under(pos: Vector3) -> Node3D:
 
 
 func site_at(pos: Vector3, margin := 0.0) -> Node3D:
-	## A house, dock or raft (being built) whose footprint pos is within, or null.
-	var h := house_at(pos, margin)
-	if h:
-		return h
+	## A house, dock or raft still being built whose footprint pos is within,
+	## or null. Finished ones are passed over: a raft is marked out right
+	## beside its finished dock, inside the dock's margin.
+	for h in Game.houses:
+		if not h.complete() and h.covers(pos, margin):
+			return h
 	for d in Game.docks:
-		if d.covers(pos, margin):
+		if not d.complete() and d.covers(pos, margin):
 			return d
 	for r in Game.rafts:
 		if not r.complete() and r.over(pos, margin):
@@ -2126,26 +2337,52 @@ func _spawn_islands() -> void:
 			add_heavy_stone("anvil_stone", Vector3(p.x, 0, p.y), hash(uid) % 628 / 100.0, -1.0, {"uid": uid})
 
 
+const METEOR_CLEAR := 60.0   # a meteorite never lands this near anything you have built or put down
+const PLAYER_MADE := ["houses", "docks", "stacks", "stashes", "drops", "fires", "workbenches",
+	"fire_pots", "vessels", "traps", "soup_pots", "rafts", "furnaces", "composters", "clamps", "bedrolls"]
+
+
+func player_made_spots() -> Array:
+	## Where everything you have built or set down is (flat, x and z).
+	var out := []
+	for g in PLAYER_MADE:
+		for n in get_tree().get_nodes_in_group(g):
+			if n is Node3D and n.is_inside_tree():
+				out.append(Vector2(n.global_position.x, n.global_position.z))
+	return out
+
+
+static func clear_of(p: Vector3, spots: Array, r := METEOR_CLEAR) -> bool:
+	for s in spots:
+		if (s as Vector2).distance_to(Vector2(p.x, p.z)) < r:
+			return false
+	return true
+
+
 func meteor_fall(dir: Vector3) -> Vector3:
 	## A meteorite comes down on dry land 60-300 m away, roughly along dir
 	## (now and then out on an island): a smoking crater with the meteorite
-	## half buried in it and lumps of meteoric iron strewn round. Where it
-	## fell, or Vector3.INF if it found nowhere dry (lost in the water).
+	## half buried in it and lumps of meteoric iron strewn round, never within
+	## METEOR_CLEAR of anything you have built or set down. Where it fell, or
+	## Vector3.INF if it found nowhere dry and clear (lost in the water).
 	var from: Vector3 = player.global_position if player else Vector3.ZERO
 	var at := Vector3.INF
+	var built := player_made_spots()
 	if _rng.randf() < 0.15 and not terrain.islands.is_empty():
 		var isl: Dictionary = terrain.islands[_rng.randi() % terrain.islands.size()]
 		var a := _rng.randf() * TAU
 		var p := Vector2(isl.x, isl.z) + Vector2(cos(a), sin(a)) * float(isl.r) * _rng.randf_range(0.0, 0.35)
 		at = Vector3(p.x, ground_height(p.x, p.y), p.y)
-	else:
+		if not clear_of(at, built):
+			at = Vector3.INF
+	if not at.is_finite():
 		for t in 40:
 			var a := atan2(dir.z, dir.x) + _rng.randf_range(-0.6, 0.6) * (1.0 + t / 10.0)
 			var d := _rng.randf_range(60.0, 300.0)
 			var x := from.x + cos(a) * d
 			var z := from.z + sin(a) * d
 			var h := ground_height(x, z)
-			if h > water_level() + 0.25 and house_at(Vector3(x, h, z), 4.0) == null:
+			if h > water_level() + 0.25 and clear_of(Vector3(x, h, z), built):
 				at = Vector3(x, h, z)
 				break
 	if not at.is_finite() or at.y < water_level() + 0.1:

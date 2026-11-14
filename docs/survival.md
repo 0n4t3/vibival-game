@@ -149,7 +149,7 @@ bandage or waxy residue. A clean, covered wound can't get infected.
 
 | Stage | Effect | Treatment |
 |---|---|---|
-| Minor | None yet | Wash it and cover it. Left alone it usually clears in about half a day, but it may get worse (less likely if it is clean and covered) |
+| Minor | None yet | Wash it and cover it. Left alone it usually clears in about half a day, but it may get worse (less likely if it is clean and covered). One caught in your first two days always clears by itself |
 | Moderate | Fever: no sprinting, thirstier | Clean it with alcohol, then bandage it. Untreated, it turns major in about a day |
 | Major | Fever | Only alcohol, twice: the first puts it into remission, the second makes it minor. Untreated, sepsis in about a day |
 | Major (in remission) | Fever | Alcohol again, before it flares back up (about a day) |

@@ -241,8 +241,9 @@ func _draw_hud() -> void:
 	# Vitals
 	if show_vitals and player:
 		var v = player.vitals
-		# Stamina is a bar; hunger and thirst are words (Survival.HUNGER_NAMES,
-		# THIRST_NAMES), each line left out while you are neither.
+		# Stamina is a bar; hunger, thirst and cravings are words
+		# (Survival.HUNGER_NAMES, THIRST_NAMES, craving_words), each line left
+		# out while it doesn't apply.
 		var r := Rect2(20, size.y - 40.0, 180, 12)
 		_canvas.draw_rect(r.grow(2), Color(0, 0, 0, 0.55))
 		_canvas.draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(v.stamina / 100.0, 0.0, 1.0), r.size.y)), Color(0.92, 0.9, 0.62))
@@ -251,7 +252,7 @@ func _draw_hud() -> void:
 			_canvas.draw_rect(Rect2(cap_x, r.position.y, r.end.x - cap_x, r.size.y), Color(0.3, 0.1, 0.1, 0.6))
 		_canvas.draw_string(font, r.position + Vector2(r.size.x + 8, 11), "Stamina", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.75))
 		var by := r.position.y - 4.0  # baseline of the next line up
-		for need in [v.thirst_words(), v.hunger_words()]:
+		for need in [v.craving_words(), v.thirst_words(), v.hunger_words()]:
 			if need[0] != "":
 				_canvas.draw_string(font, Vector2(20, by), need[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, need[1])
 				by -= 19.0

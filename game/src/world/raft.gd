@@ -336,7 +336,12 @@ func _physics_process(delta: float) -> void:
 		var step := Vector3(vel.x, 0, vel.z) * delta
 		if step.length() > 0.0001:
 			var ahead := global_position + step + step.normalized() * 0.8
-			if depth_at(global_position + step) < draft() or depth_at(ahead) < draft():
+			if _hits_dock(global_position + step):
+				# Bumps off the piles: it can't pass under a dock.
+				if vel.length() > 0.6:
+					Sfx.play_at("hit", global_position, -8.0, 0.2)
+				vel = -vel * 0.15
+			elif depth_at(global_position + step) < draft() or depth_at(ahead) < draft():
 				if not grounded and rider and vel.length() > 0.4:
 					Game.notify("The raft grounds in the shallows.")
 				grounded = true
@@ -359,6 +364,21 @@ func _physics_process(delta: float) -> void:
 	rotation = Vector3(tilt.y, _yaw, -tilt.x)
 	_carry()
 	push = Vector3.ZERO
+
+
+func _hits_dock(at: Vector3) -> bool:
+	## Whether the raft, moved to `at`, would run into a dock (its piles and
+	## deck, from the bank to its far end; the slipway beside it is open).
+	var basis := Basis(Vector3.UP, _yaw)
+	for d in Game.docks:
+		if not is_instance_valid(d) or d.preview:
+			continue
+		if d.global_position.distance_to(at) > d.LEN + 4.0:
+			continue
+		for c in CORNERS + [Vector3(0, 0, -HALF.y), Vector3(0, 0, HALF.y), Vector3(-HALF.x, 0, 0), Vector3(HALF.x, 0, 0), Vector3.ZERO]:
+			if d.covers(at + basis * c, 0.1) and not d.covers(global_position + basis * c, 0.1):
+				return true
+	return false
 
 
 func out_on_water() -> bool:

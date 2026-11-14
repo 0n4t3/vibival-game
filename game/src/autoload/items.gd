@@ -249,6 +249,9 @@ const ITEMS := {
 	# recipe asks for either (a baitbox). "any_raw_meat" itself is never found.
 	"any_raw_meat": {"name": "Raw Meat or Fish", "desc": "A piece of raw meat or raw fish.", "stack": 10, "w": 0.5,
 		"color": Color(0.80, 0.40, 0.38), "shape": "meat"},
+	# Never found either: a recipe's "any_water" takes any of ANY_WATER.
+	"any_water": {"name": "Water (pot, canteen or flask)", "desc": "A serving of swamp or boiled water, in a pot, canteen or flask.", "stack": 1, "w": 1.5,
+		"color": Color(0.40, 0.55, 0.60), "shape": "pot_water"},
 	# Thrown into the water, a baitbox sends every Uranocentrodon and Eogyrinus
 	# within Creature.FRENZY_RADIUS into a feeding frenzy round it for `frenzy`
 	# seconds (swamp.start_frenzy). On land it is just dropped.
@@ -316,12 +319,13 @@ const ITEMS := {
 	# Preserving pots (see core/preserves.gd): a clay pot filled at a
 	# fermentation vessel with 1-4 preserved items and a serving of its liquid,
 	# the lot in the slot's data (and its weight, `w`). Sealed with a wooden
-	# cap and wax, nothing in it ages, and it no longer shows what it holds.
-	"pot_preserves": {"name": "Pot of Preserves", "desc": "An open clay pot of preserved food in its liquid.", "stack": 1, "w": 3.0,
+	# cap and wax (a hand recipe), nothing in it ages, and it no longer shows
+	# what it holds.
+	"pot_preserves": {"name": "Unsealed Pot of Preserves", "desc": "An open clay pot of preserved food in its liquid. Seal it with a wooden cap and a lump of wax (Craft).", "stack": 1, "w": 3.0,
 		"color": Color(0.72, 0.70, 0.48), "shape": "pot_water", "preserves": true},
 	"pot_sealed": {"name": "Sealed Pot", "desc": "A clay pot with a wooden cap waxed down over its mouth. You can't see what is inside. Nothing in it spoils while it stays sealed. Open it (Use) to take everything out: the cap comes back, the wax doesn't.", "stack": 1, "w": 3.0,
 		"color": Color(0.70, 0.42, 0.28), "shape": "pot_capped", "preserves": true},
-	"wooden_cap": {"name": "Wooden Cap", "desc": "A round wooden cap carved to fit a clay pot's mouth. With a lump of wax it seals a pot of preserves, and comes back when the pot is opened.", "stack": 1, "w": 0.1,
+	"wooden_cap": {"name": "Wooden Cap", "desc": "A round wooden cap carved to fit a clay pot's mouth. With a lump of wax it seals a pot of preserves (Craft), and comes back when the pot is opened.", "stack": 1, "w": 0.1,
 		"color": Color(0.62, 0.47, 0.30), "shape": "pot_cap"},
 	# Soup: a soup pot is carried and hangs over a fire (see soup_pot.gd); a
 	# clay pot scoops one serving out of it. A Pot of Soup's values are its
@@ -458,7 +462,11 @@ const ITEMS := {
 		"color": Color(0.50, 0.49, 0.46), "shape": "pencil_core", "cook": "pencil_core", "cook_time": 50.0},
 	"pencil_core": {"name": "Pencil Core", "desc": "A hard, dark rod of fired ash and clay that leaves a grey line. Bind it between the halves of a split stick to make an ash pencil.", "stack": 10, "w": 0.03,
 		"color": Color(0.24, 0.23, 0.22), "shape": "pencil_core"},
-	"ash_pencil": {"name": "Ash Pencil", "desc": "A fired ash-and-clay core bound between the two halves of a split stick. It will draw blueprints on a Big Blank Sheet: it is good for 50 uses, and needs sharpening with a blade twice for each blueprint, which wears one use off each time.", "stack": 5, "w": 0.06,
+	# The charted map (core/chart.gd): one chart per world, which any Map
+	# shows; it is drawn in round you while you carry it and a sharp pencil.
+	"chart_map": {"name": "Map", "desc": "A Big Blank Sheet ruled for a map. Carry it with an ash pencil and the ground round you is drawn in as you go; the pencil goes blunt and needs sharpening (Use it with a blade in your bag). Use the map to look at it and to put markers on it.", "stack": 1, "w": 0.1,
+		"color": Color(0.84, 0.80, 0.64), "shape": "blueprint", "chart": true},
+	"ash_pencil": {"name": "Ash Pencil", "desc": "A fired ash-and-clay core bound between the two halves of a split stick. It will draw blueprints on a Big Blank Sheet, and draws your map in as you go: it is good for 50 uses, and needs sharpening with a blade twice for each blueprint and whenever it goes blunt charting (Use it with a blade in your bag), which wears one use off each time.", "stack": 5, "w": 0.06,
 		"color": Color(0.55, 0.42, 0.26), "shape": "pencil", "uses": 50},
 	# Blueprints: drawn at a workbench, then held to show where the building
 	# goes and right-clicked to mark out its site (see house.gd).
@@ -495,7 +503,7 @@ const ITEMS := {
 		"color": Color(0.64, 0.54, 0.36), "shape": "bedroll", "place": "bedroll"},
 
 	# --- Boats (boats.md) -------------------------------------------------------
-	"blueprint_dock": {"name": "Dock Blueprint", "desc": "Plans for a dock on Calamites piles running out over the water, with a slipway for a raft and a mooring post. Hold it at the water's edge to see where the dock would go and right-click to mark out the site. Then bring, part by part: 5 Calamites logs (carried: a land post and four piles) and a river stone to pound them in, 16 sticks, a blade, 8 Calamites boards, 12 tree fern boards, 3 branches and 22 cordage. Driving the piles is done standing in the water with nothing to protect you: throw a baitbox along the shore first.", "stack": 5, "w": 0.1,
+	"blueprint_dock": {"name": "Dock Blueprint", "desc": "Plans for a dock on Calamites piles, with a slipway for a raft and a mooring post. Hold it at the water's edge to see where it would go; right-click to mark out the site. Needs 5 carried Calamites logs, a river stone, 16 sticks, 8 Calamites boards, 12 tree fern boards, 3 branches, 22 cordage and a blade. You drive the piles standing in the water: throw a baitbox along the shore first.", "stack": 5, "w": 0.1,
 		"color": Color(0.86, 0.84, 0.72), "shape": "blueprint", "blueprint": "dock"},
 	"calamites_pole": {"name": "Calamites Pole", "desc": "A long, light pole split from a Calamites trunk. Hold it on a raft and the movement keys pole the raft along. A weak jab at anything biting the raft, with a long reach. Char the tip in a campfire to harden it.", "stack": 1, "w": 1.2,
 		"color": Color(0.70, 0.62, 0.40), "shape": "rod", "damage": 3.5, "reach": 3.6, "tags": ["pole"], "cook": "hardened_pole", "cook_time": 40.0},
@@ -536,9 +544,11 @@ const ITEMS := {
 		"color": Color(0.70, 0.42, 0.24), "shape": "rock", "pile": true, "as": "copper"},
 	"charcoal": {"name": "Charcoal", "desc": "Light, black and brittle, from a charcoal clamp. Burns hot and long: the furnace needs it, and in a campfire it lasts far longer than wood.", "stack": 30, "w": 0.2,
 		"color": Color(0.12, 0.12, 0.13), "shape": "blob", "pile": true, "fuel": 900.0},
+	"stone_grit": {"name": "Stone Grit", "desc": "A river stone crushed to sharp grit. With water, it grinds an anvil's face smooth.", "stack": 20, "w": 0.3,
+		"color": Color(0.55, 0.54, 0.50), "shape": "salt", "pile": true},
 	"whetstone": {"name": "Whetstone", "desc": "A river stone ground flat and smooth. Hold it and press E at an anvil to seat it in the anvil's corner: then kneel at the anvil (C) to grind castings sharp and sharpen blunt metal tools.", "stack": 1, "w": 0.8,
 		"color": Color(0.62, 0.62, 0.58), "shape": "rock"},
-	"anvil_stone": {"name": "Anvil Stone", "desc": "A flat basalt slab from the islands. Too heavy for the bag: carry it and set it down where you want your anvil.", "stack": 1, "w": 30.0,
+	"anvil_stone": {"name": "Anvil Stone", "desc": "A basalt boulder from the islands, lumpy until you shape it: kneel at it to peck its face flat with a river stone, grind it smooth with stone grit and water, and peck a seat for a whetstone. Too heavy for the bag: carry it and set it down where you want your anvil.", "stack": 1, "w": 30.0,
 		"color": Color(0.28, 0.28, 0.30), "shape": "rock", "carry": true},
 	"meteorite": {"name": "Meteorite", "desc": "A dark, pitted, rusty lump of iron that fell from the sky. Kneel at it with a copper chisel and hammer to chip lumps off.", "stack": 1, "w": 15.0,
 		"color": Color(0.30, 0.24, 0.20), "shape": "rock", "carry": true},
@@ -605,7 +615,7 @@ const ITEMS := {
 	"copper_saw_blade": {"name": "Copper Saw Blade", "desc": "Its teeth ground sharp. Haft it to make a copper saw.", "stack": 4, "w": 0.7,
 		"color": Color(0.80, 0.47, 0.24), "shape": "plank"},
 	"copper_hammer_head": {"name": "Copper Hammer Head", "desc": "A heavy cast head. Haft it to make a copper hammer.", "stack": 4, "w": 0.8,
-		"color": Color(0.80, 0.47, 0.24), "shape": "mattock_head", "head": Color(0.80, 0.47, 0.24)},
+		"color": Color(0.80, 0.47, 0.24), "shape": "hammer_head", "head": Color(0.80, 0.47, 0.24)},
 	"copper_pole_shoe": {"name": "Copper Pole Shoe", "desc": "A pointed copper cap for the tip of a raft pole.", "stack": 4, "w": 0.3,
 		"color": Color(0.80, 0.47, 0.24), "shape": "pencil_core"},
 	"copper_fishhook": {"name": "Copper Fishhook", "desc": "A sharp, barbed copper hook. Bait stays on it: rig a rod with it at a workbench, or swap it onto a rod by hand.", "stack": 10, "w": 0.02,
@@ -625,7 +635,7 @@ const ITEMS := {
 	"copper_chisel": {"name": "Copper Chisel", "desc": "Hard enough to bite into meteoric iron. Goes blunt with use: sharpen it at the anvil's whetstone.", "stack": 1, "w": 0.4,
 		"color": Color(0.50, 0.40, 0.28), "shape": "pencil_core", "damage": 4.0, "tier": "metal", "reach": 1.8, "tags": ["chisel"], "edge": 30, "color2": Color(0.80, 0.47, 0.24)},
 	"copper_hammer": {"name": "Copper Hammer", "desc": "Breaks copper ore off the island outcrops and crushes it, and works meteoric iron cold. Its face mushrooms on iron: once worn out it is only good for melting down again.", "stack": 1, "w": 1.2,
-		"color": Color(0.50, 0.40, 0.28), "shape": "mattock", "damage": 8.0, "tier": "metal", "reach": 2.2, "tags": ["hammer"], "head": Color(0.80, 0.47, 0.24), "uses": 60},
+		"color": Color(0.50, 0.40, 0.28), "shape": "hammer", "damage": 8.0, "tier": "metal", "reach": 2.2, "tags": ["hammer"], "head": Color(0.80, 0.47, 0.24), "uses": 60},
 	"iron_axe": {"name": "Iron Axe", "desc": "The real metal axe: fells every tree as fast as a soft one. Holds its edge longer than copper.", "stack": 1, "w": 1.6,
 		"color": Color(0.50, 0.40, 0.28), "shape": "axe", "damage": 18.0, "tier": "advanced", "reach": 2.4, "tags": ["cut", "chop"], "edge": 45, "head": Color(0.60, 0.61, 0.63)},
 	"iron_knife": {"name": "Iron Knife", "desc": "The best blade there is.", "stack": 1, "w": 0.4,
@@ -685,7 +695,15 @@ const TIER_NAMES := {
 }
 
 ## Recipe book categories, in order.
-const CATEGORIES := ["Accelerator", "Breakroom", "Stone tools", "Weapons", "Materials", "Fire", "Food", "Fishing", "Traps", "Containers", "Farming", "Medicine", "Gear", "Workbench", "Writing", "Blueprints", "Metal"]
+const CATEGORIES := ["Accelerator", "Breakroom", "Stone tools", "Weapons", "Materials", "Fire", "Food", "Fishing", "Traps", "Containers", "Farming", "Medicine", "Gear", "Workbench", "Writing", "Metal"]
+## Recipes the recipe book shows as one entry (book_group): every way of
+## tearing up meat bait, and every small prey animal gutted and skinned.
+const BOOK_GROUPS := {
+	"meat_bait": {"icon": "meat_bait", "title": "Meat Bait x2", "needs": "1 Raw Meat or Fish: a piece of meat or fish, a small fish, gnawed meat or any dressed small animal",
+		"verb": "Tear up meat bait", "how": "Click the meat to tear it into small pieces of bait."},
+	"dress": {"icon": "lizard_dressed", "title": "Dressed small animal", "needs": "1 small animal carcass: %s",
+		"verb": "Gut and skin a small animal", "how": "Click along the belly to open it, pull out the guts and peel off the skin. They are left in a pile on the ground."},
+}
 ## The recipe book's own page for recipes that need a tool on a workbench's
 ## rack, shown apart from their categories once you know the tool.
 const ADVANCED := "Rack tools"
@@ -859,6 +877,11 @@ const RECIPES := [
 		"cat": "Fire", "act": "steps", "verb": "String the bow drill",
 		"how": "Click each end of the bow to tie the string, then loop it around the drill."},
 
+	# Sealing a pot of preserves: the pot's contents carry over (work_spot.gd).
+	{"out": "pot_sealed", "n": 1, "in": {"pot_preserves": 1, "wooden_cap": 1, "wax": 1}, "where": "swamp", "tier": "hand", "seal": true,
+		"cat": "Containers", "act": "steps", "steps": 3, "verb": "Seal the pot",
+		"how": "Click to press the wooden cap into the pot's mouth, then work the wax round its rim until it is sealed. Nothing in it will spoil."},
+
 	# Made at a workbench with a tool hanging on its rack.
 	{"out": "soup_pot_unfired", "n": 1, "in": {"clay": 10, "board": 3}, "where": "swamp", "tier": "bench", "rack": "clay_platter", "listed": true,
 		"cat": "Containers", "act": "steps", "steps": 8, "verb": "Build a soup pot",
@@ -880,7 +903,7 @@ const RECIPES := [
 		"cat": "Materials", "act": "twist", "verb": "Spin string",
 		"how": "Hold the left mouse button and drag to keep the spindle turning as you draw the fiber out into a fine, even string."},
 	{"out": "compost_basket", "n": 1, "in": {"board": 4, "stick": 6, "cordage": 2}, "where": "swamp", "tier": "bench", "rack": "woodworking_tools", "listed": true,
-		"cat": "Farming", "act": "steps", "steps": 6, "verb": "Build a compost basket",
+		"cat": "Containers", "act": "steps", "steps": 6, "verb": "Build a compost basket",
 		"how": "Click the glowing spots to set up four stick posts, then saw the boards into slats and lash them round, course by course."},
 	{"out": "baitbox", "n": 1, "in": {"board": 1, "any_raw_meat": 2}, "where": "swamp", "tier": "bench", "rack": "woodworking_tools", "listed": true,
 		"cat": "Traps", "act": "steps", "steps": 4, "verb": "Make a baitbox",
@@ -894,9 +917,9 @@ const RECIPES := [
 	{"out": "papermaking_tools", "n": 1, "in": {"clay_bowl": 1, "stick": 4, "plant_fiber": 6, "cordage": 1}, "where": "swamp", "tier": "bench",
 		"cat": "Workbench", "act": "steps", "steps": 6, "verb": "Make a papermaking screen",
 		"how": "Click the corners to lash a frame of sticks, then weave fine fiber across it. The screen goes with the bowl, ready to hang on the rack."},
-	{"out": "paper_wet", "n": 1, "in": {"plant_fiber": 6, "pot_dirty": 1}, "where": "swamp", "tier": "bench", "rack": "papermaking_tools",
+	{"out": "paper_wet", "n": 1, "in": {"plant_fiber": 6, "any_water": 1}, "where": "swamp", "tier": "bench", "rack": "papermaking_tools", "listed": true,
 		"cat": "Writing", "act": "steps", "steps": 5, "verb": "Make a sheet of paper",
-		"how": "Click the bowl to mash the fiber with a pot of water (swamp or boiled) into a fine pulp, then dip the screen and lift a sheet. You keep the empty pot. Dry the wet sheet in a campfire."},
+		"how": "Click the bowl to mash the fiber with a serving of water (swamp or boiled, from a pot, canteen or flask) into a fine pulp, then dip the screen and lift a sheet. You keep the pot, canteen or flask. Dry the wet sheet in a campfire."},
 	{"out": "pencil_core_unfired", "n": 1, "in": {"ash": 1, "clay": 1}, "where": "swamp", "tier": "bench", "rack": "papermaking_tools",
 		"cat": "Writing", "act": "steps", "steps": 3, "verb": "Roll a pencil core",
 		"how": "Click to knead the ash into the clay and roll it out into a thin rod. Fire it in a campfire to harden it."},
@@ -904,8 +927,11 @@ const RECIPES := [
 		"cat": "Writing", "act": "steps", "steps": 4, "verb": "Make an ash pencil",
 		"how": "Click the glowing spots to split the stick in half with a blade, lay the fired core in the groove, close the halves over it and bind them with cord."},
 	# `wear`: the tool worn by one use at each of the `sharpen` steps.
+	{"out": "chart_map", "n": 1, "in": {"paper_sheet": 1}, "tools": {"ash_pencil": 1}, "tool_tag": "cut", "wear": "ash_pencil", "sharpen": [0],
+		"where": "swamp", "tier": "bench", "cat": "Writing", "act": "steps", "steps": 4, "verb": "Rule a map",
+		"how": "Sharpen the pencil with your blade (it wears one use off it), then click the glowing spots to rule a border round the sheet and draw a compass rose. Carry the map and a pencil and the ground round you is drawn in as you go."},
 	{"out": "blueprint_softwood_house", "n": 1, "in": {"paper_sheet": 1}, "tools": {"ash_pencil": 1}, "tool_tag": "cut", "wear": "ash_pencil", "sharpen": [0, 5],
-		"where": "swamp", "tier": "bench", "cat": "Blueprints", "act": "steps", "steps": 10, "verb": "Draw a softwood house blueprint",
+		"where": "swamp", "tier": "bench", "cat": "Writing", "act": "steps", "steps": 10, "verb": "Draw a softwood house blueprint",
 		"how": "Click the glowing spots to draw the house on the sheet: its stilts and floor, the walls with their windows and doorway, the porch, the fireplace and the roof. Sharpen the pencil with your blade before you start and again halfway (each wears one use off it)."},
 	# `bait`: any bait will do, not just the meat bait named in `in` (for the
 	# book). The work spot offers one of these per bait laid out beside an
@@ -916,7 +942,7 @@ const RECIPES := [
 
 	# --- Boats (boats.md) ---
 	{"out": "blueprint_dock", "n": 1, "in": {"paper_sheet": 1}, "tools": {"ash_pencil": 1}, "tool_tag": "cut", "wear": "ash_pencil", "sharpen": [0, 5],
-		"where": "swamp", "tier": "bench", "cat": "Blueprints", "act": "steps", "steps": 10, "verb": "Draw a dock blueprint",
+		"where": "swamp", "tier": "bench", "cat": "Writing", "act": "steps", "steps": 10, "verb": "Draw a dock blueprint",
 		"how": "Click the glowing spots to draw the dock on the sheet: the land post and the piles, the spikes round them, the stringers and deck, the slipway and the mooring post. Sharpen the pencil with your blade before you start and again halfway (each wears one use off it)."},
 	{"out": "copper_shod_pole", "n": 1, "in": {"calamites_pole": 1, "copper_pole_shoe": 1}, "where": "swamp", "tier": "hand",
 		"cat": "Metal", "act": "steps", "steps": 3, "verb": "Shoe the pole with copper",
@@ -947,6 +973,10 @@ const RECIPES := [
 		"cat": "Metal", "act": "steps", "steps": 8, "verb": "Grind a whetstone",
 		"label": "Whetstone (one river stone is kept, the pot left empty)",
 		"how": "Click to grind one river stone flat against the other, pouring on water as you go."},
+	{"out": "stone_grit", "n": 2, "in": {"stone": 2}, "give": {"stone": 1}, "anvil_steps": 3, "where": "swamp", "tier": "hand",
+		"cat": "Metal", "act": "steps", "steps": 5, "verb": "Crush a stone to grit",
+		"label": "Stone Grit x2 (one river stone is kept to strike with)",
+		"how": "Click to crush one river stone to grit with the other (quicker on an anvil)."},
 	{"out": "smashed_native_copper", "n": 1, "in": {"native_copper": 1}, "tools": {"stone": 1}, "anvil_steps": 2, "where": "swamp", "tier": "hand",
 		"cat": "Metal", "act": "steps", "steps": 4, "verb": "Smash native copper",
 		"how": "Click to beat the lump to grit with a river stone, freeing the copper threads (quicker on an anvil)."},
@@ -1403,10 +1433,21 @@ func slot_weight(s: Dictionary) -> float:
 	return float(d.w) if d.has("w") else weight(s.id)
 
 
+# Any pot, canteen or flask of swamp or boiled water will do for "any_water"
+# (paper pulp); one serving is used and the container comes back (`empty`).
+const ANY_WATER := ["pot_dirty", "pot_clean", "canteen_dirty_1", "canteen_dirty_2", "canteen_clean_1",
+	"canteen_clean_2", "flask_dirty_1", "flask_dirty_2", "flask_dirty_3", "flask_dirty_4",
+	"flask_clean_1", "flask_clean_2", "flask_clean_3", "flask_clean_4"]
+
+
 func counts_as(id: String, want: String) -> bool:
 	## Whether `id` will do in a recipe that wants `want` (itself, or an item
 	## with `as` set to it, like any tree's board for "board").
-	return id == want or def(id).get("as", "") == want
+	if id == want:
+		return true
+	if want == "any_water":
+		return id in ANY_WATER
+	return def(id).get("as", "") == want
 
 
 func woodwork(on: String) -> Array:
@@ -1428,6 +1469,15 @@ func recipe_for(out: String, where := "") -> Dictionary:
 		if r.out == out and (where == "" or r.where == where):
 			return r
 	return {}
+
+
+static func book_group(r: Dictionary) -> String:
+	## Which BOOK_GROUPS entry the recipe book shows a recipe under, or "".
+	if r.out == "meat_bait" and not r.has("bait"):
+		return "meat_bait"
+	if r.get("dress", false):
+		return "dress"
+	return ""
 
 
 func recipe_steps(r: Dictionary) -> int:
